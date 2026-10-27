@@ -1,0 +1,216 @@
+import AppKit
+import Network
+
+@MainActor final class SenderApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    private var window: NSWindow!
+    private let addresses = NSPopUpButton()
+    private let resolution = NSPopUpButton()
+    private let fps = NSPopUpButton()
+    private let quality = NSPopUpButton()
+    private let code = NSTextField(string: "")
+    private let status = label("Prepara la conexión y abre el receptor en la iMac.")
+    private let metrics = label("", size: 12)
+    private var startButton: NSButton!, stopButton: NSButton!
+    private var listener: NWListener?
+    private var channel: PacketChannel?
+    private var display = DisplayManager()
+    private var capture: CapturePipeline?
+    private var startTask: Task<Void, Never>?
+    private var pattern: NSWindow?
+    private var heartbeat: Timer?
+    private var pending: (sequence: UInt32, sent: Date)?
+    private var delivered = 0, bytesSent = 0
+    private var since = Date()
+    private var streaming = false, stopping = false, receivedHello = false
+    private var generation = UUID()
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        configureMenu()
+        window = makeWindow("iMac por red · MacBook", width: 680, height: 590)
+        window.delegate = self
+        addresses.addItems(withTitles: localAddresses())
+        resolution.addItems(withTitles: ["1920 × 1080", "2560 × 1440", "1280 × 720"])
+        fps.addItems(withTitles: ["30 FPS", "60 FPS", "15 FPS"])
+        quality.addItems(withTitles: ["12 Mbps", "20 Mbps", "6 Mbps"])
+        code.isEditable = false; code.isSelectable = true
+        code.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        startButton = button("Preparar conexión", target: self, action: #selector(prepare))
+        stopButton = button("Desconectar", target: self, action: #selector(disconnect))
+        stopButton.isEnabled = false
+        let actions = NSStackView(views: [startButton, stopButton, button("Copiar clave", target: self, action: #selector(copyCode))])
+        let modes = NSStackView(views: [resolution, fps, quality])
+        let stack = NSStackView(views: [
+            label("Tu iMac, como segunda pantalla", size: 25, bold: true),
+            label("Las aplicaciones corren en esta MacBook. La iMac recibe la imagen por la red local."),
+            label("1. Dirección IP de esta MacBook · puerto 7777", bold: true), addresses,
+            label("2. Resolución, fluidez y calidad", bold: true), modes,
+            label("3. Clave temporal para pegar en el receptor", bold: true), code, actions,
+            status, metrics,
+            button("Mostrar patrón de prueba", target: self, action: #selector(showPattern)),
+            label("Mueve ventanas por el borde derecho de la MacBook. Puedes cambiar la posición en Ajustes del Sistema → Pantallas.", size: 12),
+            label("Prototipo experimental · sin audio · API privada para crear la pantalla", size: 11)
+        ])
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        window.contentView!.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -28),
+            stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 26),
+            code.widthAnchor.constraint(equalTo: stack.widthAnchor)
+        ])
+        display.onUnexpectedExit = { [weak self] in self?.stopSession("La pantalla virtual terminó inesperadamente.") }
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(sleeping), name: NSWorkspace.willSleepNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(screenChanged), name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    @objc private func prepare() {
+        guard listener == nil, !stopping else { return }
+        do {
+            guard let ip = addresses.titleOfSelectedItem, isLocalIPv4(ip) else { throw DisplayError("No se encontró una IP local. Conecta la MacBook a Wi‑Fi y vuelve a abrir la app.") }
+            let secret = try Pairing.generate()
+            let parameters = try Pairing.parameters(code: secret)
+            parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(ip), port: 7777)
+            let server = try NWListener(using: parameters)
+            listener = server; code.stringValue = secret
+            generation = UUID(); receivedHello = false
+            server.stateUpdateHandler = { [weak self] state in
+                if case .failed(let error) = state {
+                    DispatchQueue.main.async { self?.stopSession("No se pudo escuchar en la red: \(error.localizedDescription)") }
+                }
+            }
+            server.newConnectionHandler = { [weak self] connection in DispatchQueue.main.async { self?.accept(connection) } }
+            server.start(queue: .main)
+            setOptions(enabled: false)
+            stopButton.isEnabled = true
+            status.stringValue = "Esperando a la iMac. Introduce \(ip), puerto 7777 y esta clave en el receptor."
+            metrics.stringValue = "Todavía no se transmite el escritorio."
+        } catch { status.stringValue = error.localizedDescription }
+    }
+    private func accept(_ connection: NWConnection) {
+        guard channel == nil, !stopping else { connection.cancel(); return }
+        let peer = PacketChannel(connection)
+        channel = peer
+        peer.onPacket = { [weak self] data in self?.packet(data) }
+        peer.onClose = { [weak self] reason in self?.stopSession(reason) }
+        peer.start()
+    }
+    private func packet(_ data: Data) {
+        guard let channel, !stopping else { return }
+        if !receivedHello {
+            guard data == Wire.hello else { channel.close("El receptor usa un protocolo incompatible."); return }
+            receivedHello = true
+            let epoch = generation
+            let alert = NSAlert()
+            alert.messageText = "¿Transmitir a esta iMac?"
+            alert.informativeText = "Un receptor con la clave de esta sesión solicita la pantalla adicional. Acepta si acabas de conectarlo desde tu iMac."
+            alert.addButton(withTitle: "Aceptar y transmitir"); alert.addButton(withTitle: "Rechazar")
+            alert.beginSheetModal(for: window) { [weak self] answer in
+                guard let self, self.generation == epoch, !self.stopping else { return }
+                if answer == .alertFirstButtonReturn { self.beginStreaming() }
+                else { self.stopSession("Conexión rechazada.") }
+            }
+        } else if data.first == 4, data.count == 5, streaming {
+            guard let sequence = try? data.uint32(at: 1), pending?.sequence == sequence,
+                  capture?.acknowledge(sequence) == true, let frame = pending else { channel.close("Confirmación de video inválida."); return }
+            delivered += 1
+            let rtt = Date().timeIntervalSince(frame.sent) * 1000
+            let elapsed = max(0.1, Date().timeIntervalSince(since))
+            metrics.stringValue = String(format: "H.264 por hardware · %.1f FPS entregados · %.1f Mbps · ACK %.0f ms", Double(delivered)/elapsed, Double(bytesSent)*8/elapsed/1_000_000, rtt)
+            pending = nil
+        } else if data == Data([6]), streaming {
+            channel.armTimeout(seconds: 10)
+        } else { channel.close("Mensaje inesperado del receptor.") }
+    }
+    private func beginStreaming() {
+        let epoch = generation
+        let sizes = [(1920, 1080), (2560, 1440), (1280, 720)]
+        let (width, height) = sizes[resolution.indexOfSelectedItem]
+        let rate = [30, 60, 15][fps.indexOfSelectedItem]
+        let bitrate = [12_000_000, 20_000_000, 6_000_000][quality.indexOfSelectedItem]
+        status.stringValue = "Preparando pantalla y permiso de grabación de pantalla…"
+        startTask = Task { @MainActor in
+            do {
+                try await display.start(width: width, height: height, fps: rate)
+                try Task.checkCancellation()
+                guard generation == epoch else { return }
+                guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
+                    throw DisplayError("Activa iMac Sender en Ajustes → Privacidad y seguridad → Grabación de pantalla; después cierra y abre la app.")
+                }
+                let pipeline = CapturePipeline()
+                capture = pipeline
+                pipeline.onFrame = { [weak self] data, sequence in
+                    guard let self, self.generation == epoch, self.streaming, !self.stopping else { return }
+                    self.pending = (sequence, Date()); self.bytesSent += data.count
+                    self.channel?.send(data)
+                }
+                pipeline.onError = { [weak self] reason in self?.stopSession(reason) }
+                // accepted debe preceder al primer fotograma en el flujo TCP.
+                channel?.send(Wire.accepted)
+                streaming = true
+                try await pipeline.start(displayID: display.id, width: width, height: height, fps: rate, bitrate: bitrate)
+                try Task.checkCancellation()
+                since = Date(); delivered = 0; bytesSent = 0
+                status.stringValue = "Conectado · \(width) × \(height), hasta \(rate) FPS. Mueve las ventanas hacia la derecha."
+                heartbeat = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+                    Task { @MainActor in
+                    guard let self else { return }
+                    if let pending = self.pending, Date().timeIntervalSince(pending.sent) > 5 { self.stopSession("La iMac dejó de confirmar el video."); return }
+                    self.channel?.send(Data([5]))
+                    }
+                }
+            } catch { if generation == epoch { stopSession(error.localizedDescription) } }
+        }
+    }
+    @objc private func showPattern() {
+        guard streaming, let screen = NSScreen.screens.first(where: { screenID($0) == display.id }) else { status.stringValue = "Conecta primero la iMac para mostrar el patrón."; return }
+        if let pattern { pattern.orderFrontRegardless(); return }
+        let patternWindow = NSWindow(contentRect: NSRect(x: screen.frame.minX + 70, y: screen.frame.minY + 70, width: 900, height: 550),
+            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false, screen: screen)
+        patternWindow.isReleasedWhenClosed = false
+        patternWindow.title = "Escritorio extendido · prueba de legibilidad"
+        let text = label("Pantalla independiente\n\nEsta ventana corre en la MacBook M5.\nLa estás viendo por la red local.\n\nAa Bb Cc · 0123456789\nTexto de prueba: código, documentos y navegación.\n\nMueve aquí cualquier ventana de la MacBook.", size: 27)
+        text.frame = NSRect(x: 35, y: 40, width: 830, height: 460)
+        patternWindow.contentView?.addSubview(text)
+        patternWindow.orderFrontRegardless(); pattern = patternWindow
+    }
+    @objc private func copyCode() { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(code.stringValue, forType: .string) }
+    @objc private func disconnect() { stopSession("Desconectado. Prepara una nueva conexión para volver a usar la iMac.") }
+    @objc private func sleeping() { stopSession("Sesión cerrada por reposo. Vuelve a conectar al despertar.") }
+    @objc private func screenChanged() {
+        if streaming && (CGDisplayIsOnline(display.id) == 0 || CGDisplayIsInMirrorSet(display.id) != 0) {
+            stopSession("La pantalla virtual cambió o se activó duplicación. Se detuvo la transmisión.")
+        }
+    }
+    private func setOptions(enabled: Bool) {
+        startButton.isEnabled = enabled; addresses.isEnabled = enabled
+        resolution.isEnabled = enabled; fps.isEnabled = enabled; quality.isEnabled = enabled
+    }
+    private func stopSession(_ reason: String) {
+        guard !stopping else { return }
+        stopping = true; generation = UUID(); streaming = false
+        status.stringValue = reason
+        heartbeat?.invalidate(); heartbeat = nil
+        let startup = startTask; startTask = nil; startup?.cancel()
+        channel?.onClose = nil; channel?.close(); channel = nil
+        listener?.cancel(); listener = nil
+        pattern?.orderOut(nil); pattern = nil
+        display.stop(); pending = nil; receivedHello = false
+        code.stringValue = ""; stopButton.isEnabled = false
+        Task { @MainActor in
+            await startup?.value
+            await capture?.stop(); capture = nil
+            stopping = false; setOptions(enabled: true)
+        }
+    }
+    func applicationWillTerminate(_ notification: Notification) {
+        heartbeat?.invalidate(); listener?.cancel()
+        channel?.onClose = nil; channel?.close(); display.stop()
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+}
+
+let app = NSApplication.shared
+let delegate = MainActor.assumeIsolated { SenderApp() }
+app.setActivationPolicy(.regular); app.delegate = delegate; app.run()
