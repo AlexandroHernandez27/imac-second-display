@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>iMac Sender · actualizaciones experimentales</title>
+    <link>https://github.com/AlexandroHernandez27/imac-second-display</link>
+    <language>es</language>
+    <item>
+      <title>iMac Sender 0.3.0</title>
+      <pubDate>Tue, 27 Oct 2026 20:07:01 +0000</pubDate>
+      <sparkle:version>3</sparkle:version>
+      <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <description>&lt;h2&gt;Actualizaciones con tu permiso&lt;/h2&gt;
+&lt;ul&gt;
+  &lt;li&gt;Botón y menú «Buscar actualizaciones…» en Sender y Receiver.&lt;/li&gt;
+  &lt;li&gt;Opción para buscar versiones automáticamente, aproximadamente una vez al día mientras la app esté abierta.&lt;/li&gt;
+  &lt;li&gt;Confirmación antes de descargar e instalar; puedes posponer u omitir una versión.&lt;/li&gt;
+  &lt;li&gt;La actualización espera a que desconectes la pantalla.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Actualiza ambas apps para mantenerlas en la misma versión. La transmisión de video sigue siendo local; solo la consulta de versiones y descarga utilizan GitHub.&lt;/p&gt;
+&lt;p&gt;Versión experimental. Conserva las mejoras de video de v0.2.0. La firma de las apps sigue siendo local, sin notarización de Apple: macOS puede pedir que vuelvas a autorizar la app o el permiso de grabación de pantalla.&lt;/p&gt;
+</description>
+      <enclosure url="https://github.com/AlexandroHernandez27/imac-second-display/releases/download/v0.3.0/iMac-Sender-AppleSilicon.zip" length="1146164" type="application/octet-stream" sparkle:edSignature="p/UJLGLiKtUt7BY4juSrn+I3e+XK910cNSwh9eMG7ML/6COxeuaOukNK6F32EnyCMGmV4NawYujcSct7rdClCQ=="></enclosure>
+    </item>
+  </channel>
+</rss><!-- sparkle-signatures:
+edSignature: 1chsnUmCWT1Ud/4oOv9UKTbnE1x/OH6HM5SCF01Xx7uAqiCl+S19ti5KwFfkv5Bam1xPEisSGUyzZLW19jeoDg==
+length: 2135
+-->
