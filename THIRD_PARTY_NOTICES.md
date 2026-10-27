@@ -39,3 +39,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 También se revisó [DeskPad](https://github.com/Stengo/DeskPad), publicado bajo MIT
 (Copyright 2022 Bastian Andelefski), como referencia de una pantalla virtual local.
 No se incorporó su código ni sus dependencias.
+
+## Sparkle 2.10.1
+
+Las dos aplicaciones incluyen el framework binario de
+[Sparkle](https://github.com/sparkle-project/Sparkle/releases/tag/2.10.1), sin modificar,
+para comprobación, descarga e instalación de actualizaciones con confirmación.
+Su licencia y las de los componentes incluidos se distribuyen completas en
+`Contents/Resources/Sparkle-LICENSE.txt` de cada app y dentro de los recursos del
+framework. El archivo de distribución se comprueba con el SHA-256 fijado en
+`Config/release.json` antes de extraerlo.

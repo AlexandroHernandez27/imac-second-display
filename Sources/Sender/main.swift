@@ -3,6 +3,7 @@ import Network
 
 @MainActor final class SenderApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow!
+    private var updates: AppUpdater!
     private let addresses = NSPopUpButton()
     private let resolution = NSPopUpButton()
     private let fps = NSPopUpButton()
@@ -26,7 +27,8 @@ import Network
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMenu()
-        window = makeWindow("iMac por red · MacBook", width: 680, height: 590)
+        updates = AppUpdater(isConnected: { [weak self] in self?.listener != nil || self?.stopping == true })
+        window = makeWindow("iMac por red · MacBook", width: 680, height: 650)
         window.delegate = self
         addresses.addItems(withTitles: localAddresses())
         resolution.addItems(withTitles: ["1920 × 1080", "2560 × 1440", "1280 × 720"])
@@ -48,7 +50,8 @@ import Network
             status, metrics,
             button("Prueba de movimiento", target: self, action: #selector(showPattern)),
             label("Mueve ventanas por el borde derecho de la MacBook. Puedes cambiar la posición en Ajustes del Sistema → Pantallas.", size: 12),
-            label("v0.2.0 · experimental · sin audio · API privada para crear la pantalla", size: 11)
+            updates.controls,
+            label("v\(appVersion) · experimental · las actualizaciones requieren tu confirmación", size: 11)
         ])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -66,6 +69,7 @@ import Network
         NSApp.activate(ignoringOtherApps: true)
     }
     @objc private func prepare() {
+        guard updates.mayConnect() else { return }
         guard listener == nil, !stopping else { return }
         do {
             guard let ip = addresses.titleOfSelectedItem, isLocalIPv4(ip) else { throw DisplayError("No se encontró una IP local. Conecta la MacBook a Wi‑Fi y vuelve a abrir la app.") }
@@ -210,6 +214,7 @@ import Network
             await startup?.value
             await capture?.stop(); capture = nil
             stopping = false; setOptions(enabled: true)
+            updates.sessionEnded()
         }
     }
     func applicationWillTerminate(_ notification: Notification) {

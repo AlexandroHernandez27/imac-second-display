@@ -88,6 +88,11 @@ al exterior; una IP privada no protege contra un router configurado para reenvia
 
 ## Referencias primarias
 
+La actualización de aplicaciones usa un canal separado de la transmisión: feeds
+y ZIPs en GitHub por HTTPS, con firmas Ed25519 verificadas por Sparkle. No transmite
+video, claves de sesión ni contenido del escritorio a GitHub. La consulta automática
+se puede desactivar. Detalles en [Actualizaciones](ACTUALIZACIONES.md).
+
 - [Apple: requisitos de Target Display Mode](https://support.apple.com/105126), que no cubren la M5.
 - [Chromium: pantalla virtual](https://github.com/chromium/chromium/blob/main/ui/display/mac/test/virtual_display_util_mac.mm).
 - [DeskPad](https://github.com/Stengo/DeskPad).

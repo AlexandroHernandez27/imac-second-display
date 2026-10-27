@@ -1,6 +1,8 @@
 import AppKit
 import Network
 
+var appVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "desarrollo" }
+
 struct DisplayError: LocalizedError {
     let message: String
     init(_ message: String) { self.message = message }

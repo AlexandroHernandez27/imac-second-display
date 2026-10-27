@@ -1,8 +1,9 @@
 import AppKit
 import Network
 
-final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
+@MainActor final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var controls: NSWindow!, videoWindow: NSWindow!
+    private var updates: AppUpdater!
     private let host = NSTextField(string: "")
     private let code = NSSecureTextField(string: "")
     private let status = label("Introduce la dirección IP y la clave que muestra la MacBook.")
@@ -15,7 +16,8 @@ final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMenu()
-        controls = makeWindow("iMac por red · Receptor", width: 620, height: 390)
+        updates = AppUpdater(isConnected: { [weak self] in self?.channel != nil })
+        controls = makeWindow("iMac por red · Receptor", width: 650, height: 450)
         controls.delegate = self
         videoWindow = makeWindow("Pantalla de la MacBook · ⌃⌘F para pantalla completa", width: 1100, height: 650)
         videoWindow.delegate = self; videoWindow.contentView = video
@@ -40,7 +42,8 @@ final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let stack = NSStackView(views: [label("La pantalla de tu MacBook", size: 25, bold: true),
             label("IP de la MacBook · puerto 7777", bold: true), host,
             label("Clave de emparejamiento", bold: true), code, actions, status,
-            label("v0.2.0 · usa el teclado y mouse de la MacBook. Solo video, sin audio ni control remoto. Pulsa Esc para salir de pantalla completa.", size: 12)])
+            updates.controls,
+            label("v\(appVersion) · las actualizaciones requieren tu confirmación. Usa el teclado y mouse de la MacBook. Sin audio. Esc sale de pantalla completa.", size: 12)])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         controls.contentView!.addSubview(stack)
@@ -59,6 +62,7 @@ final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         controls.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
     @objc private func connect() {
+        guard updates.mayConnect() else { return }
         guard channel == nil else { return }
         do {
             let ip = host.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -100,6 +104,7 @@ final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         status.stringValue = message
         connectButton.isEnabled = true; host.isEnabled = true; code.isEnabled = true
         controls.makeKeyAndOrderFront(nil)
+        updates.sessionEnded()
     }
     @objc private func disconnect() { channel?.close("Desconectado. Prepara una nueva sesión en la MacBook para volver a conectar.") }
     @objc private func fullscreen() {
@@ -115,5 +120,5 @@ final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
 }
 
 let app = NSApplication.shared
-let delegate = ReceiverApp()
+let delegate = MainActor.assumeIsolated { ReceiverApp() }
 app.setActivationPolicy(.regular); app.delegate = delegate; app.run()

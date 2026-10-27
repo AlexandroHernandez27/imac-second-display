@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p .build/module-cache dist
+sparkle_root=$(python3 scripts/setup-sparkle.py)
 sdk_path=$(xcrun --show-sdk-path)
 sender='dist/iMac Sender.app'
 receiver='dist/iMac Receiver.app'
@@ -15,19 +16,21 @@ xcrun swiftc -swift-version 5 -O -sdk "$sdk_path" -target arm64-apple-macosx13.0
   Sources/DisplayHelper/main.swift .build/VirtualDisplay.o -framework AppKit -framework CoreGraphics \
   -o "$sender/Contents/Helpers/DisplayHelper"
 xcrun swiftc -swift-version 5 -O -sdk "$sdk_path" -target arm64-apple-macosx13.0 \
-  -module-cache-path .build/module-cache Sources/Shared/*.swift Sources/Sender/*.swift \
+  -module-cache-path .build/module-cache Sources/Shared/*.swift Sources/Updates/*.swift Sources/Sender/*.swift \
+  -F "$sparkle_root" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
   -framework AppKit -framework Network -framework Security -framework ScreenCaptureKit \
   -framework VideoToolbox -framework CoreMedia -o "$sender/Contents/MacOS/iMacSender"
 for arch in arm64 x86_64; do
   xcrun swiftc -swift-version 5 -O -sdk "$sdk_path" -target "$arch-apple-macosx13.0" \
-    -module-cache-path .build/module-cache Sources/Shared/*.swift Sources/Receiver/*.swift \
+    -module-cache-path .build/module-cache Sources/Shared/*.swift Sources/Updates/*.swift Sources/Receiver/*.swift \
+    -F "$sparkle_root" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
     -framework AppKit -framework Network -framework Security -framework AVFoundation \
     -framework CoreMedia -o ".build/iMacReceiver-$arch"
 done
 lipo -create .build/iMacReceiver-arm64 .build/iMacReceiver-x86_64 -output "$receiver/Contents/MacOS/iMacReceiver"
 
 python3 scripts/write-bundles.py
-cp THIRD_PARTY_NOTICES.md "$sender/Contents/Resources/"
+python3 scripts/embed-sparkle.py Sender Receiver
 codesign --force --sign - "$sender/Contents/Helpers/DisplayHelper"
 codesign --force --sign - "$sender"
 codesign --force --sign - "$receiver"

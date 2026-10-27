@@ -92,3 +92,29 @@ Pendientes en v0.2.0: captura real con la nueva versión y ambos equipos, aceler
 Intel, salida de pantalla completa, 1440p/60 FPS, latencia física, CPU/memoria,
 sesión de 30 minutos, reconexión, cortes Wi‑Fi y reposo. Las pruebas de v0.1.0 no
 se presentan como si se hubieran repetido con v0.2.0.
+
+## 2026-10-27 · v0.3.0 · Actualizador
+
+- Compilación: PASS. Sender arm64 y Receiver universal con Sparkle 2.10.1. El
+  archivo oficial coincidió con el SHA-256 fijado y pasó verificación de firma.
+- Fixture independiente: app con bundle ID único, clave de prueba independiente,
+  feed firmado y ZIP servido solo en loopback. No se capturó ni transmitió escritorio.
+- Firma Ed25519: PASS con CryptoKit. Se rechazaron el ZIP modificado en un byte y
+  la verificación con una clave ajena.
+- Bloqueo durante sesión simulada: PASS. Al pulsar Buscar actualizaciones mostró
+  «Desconecta la pantalla antes de buscar actualizaciones», sin consultar el feed.
+- Instalación real: PASS. Sparkle verificó el feed y archivo, sustituyó la app de
+  prueba y relanzó de 0.0.1 a 0.0.2; luego se observaron 0.0.3 y 0.0.4. El usuario
+  confirmó que pulsó instalar/reiniciar durante el ensayo. Hubo también una
+  confirmación de instalación realizada desde la herramienta en la primera prueba.
+  La versión instalada se verificó en la interfaz y el Info.plist del bundle.
+- La herramienta visual sufrió esperas prolongadas; no se usaron capturas en blanco
+  como evidencia. El comportamiento de posponer/omitir queda por ensayar manualmente:
+  en las rondas realizadas se aceptó instalar. La política de no descargar/instalar
+  silenciosamente está fijada en ambos Info.plist y es verificada al empaquetar.
+- Se cerraron la app de prueba y el servidor loopback al terminar.
+
+Pendiente: actualización real en Intel/Sequoia, conservación o renovación de permisos
+en una instalación de usuario, carpeta protegida que solicite autorización, caída de
+red durante descarga y posponer/omitir en UI. La prueba de sustitución local no
+certifica esas situaciones. El flujo de video no cambió en esta versión.

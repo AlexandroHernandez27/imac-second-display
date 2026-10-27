@@ -4,11 +4,13 @@ Prototipo nativo para usar una iMac como **pantalla adicional** de una MacBook.
 El escritorio se extiende; las aplicaciones corren en la MacBook. La iMac debe
 permanecer encendida y ejecutar el receptor.
 
-**v0.2.0 experimental:** pantalla independiente, captura y reproducción cifrada
+**v0.3.0 experimental:** incorpora actualizaciones con confirmación y conserva las
+mejoras de video de v0.2.0. Pantalla independiente, captura y reproducción cifrada
 comprobadas con ambas apps ejecutándose en una M5. El usuario reporta imagen en la
 iMac y retraso al mover ventanas/escribir con v0.1.0. Esta versión corrige el flujo
 y permite medirlo mejor; la mejora en la iMac todavía requiere prueba.
-No necesita Apple ID, suscripciones, servicios externos ni abrir puertos del router.
+La transmisión no necesita Apple ID, suscripciones, servicios externos ni abrir
+puertos del router. La búsqueda opcional de actualizaciones consulta GitHub.
 
 ## Descargar y probar
 
@@ -32,6 +34,25 @@ protocolo. Autoriza las apps en los avisos de red local/firewall de tu red de co
 Las apps tienen firma local *ad hoc*, **sin notarización de Apple**. Si macOS bloquea
 la descarga, verifica el origen y usa la excepción puntual en Ajustes del Sistema →
 Privacidad y seguridad. No desactives Gatekeeper globalmente. La iMac no necesita Xcode.
+
+## Actualizaciones desde la app
+
+Instala v0.3.0 manualmente en ambas Macs una vez. Las versiones anteriores no
+incluyen actualizador. Después:
+
+- **Buscar versiones automáticamente:** consulta aproximadamente una vez al día
+  mientras la app esté abierta. La casilla permite desactivarlo en cada equipo.
+- **Buscar actualizaciones…:** botón y opción de menú para consultar en cualquier momento.
+- Una versión nueva muestra sus cambios y solicita confirmación para descargar e
+  instalar. Puedes posponer u omitir esa versión. La instalación reinicia la app.
+- Desconecta primero la pantalla. La app evita iniciar actualizaciones durante una
+  sesión y conexiones nuevas durante una actualización en curso.
+
+Usa una carpeta local escribible, por ejemplo `~/Applications`. Si instalaste en
+una ubicación protegida, macOS puede solicitar autorización para reemplazar la app.
+La firma local puede requerir renovar el permiso de captura; las actualizaciones
+no otorgan permisos de macOS ni notarizan las apps. Cada Mac se actualiza por separado.
+Ver [funcionamiento y publicación de actualizaciones](docs/ACTUALIZACIONES.md).
 
 ## Requisitos y alcance
 
@@ -67,8 +88,10 @@ En una Mac con Apple Silicon y Command Line Tools:
 bash scripts/build.sh
 ```
 
-Produce las dos apps en `dist/`. El receptor es universal Intel/ARM. No descarga
-dependencias: usa AppKit, ScreenCaptureKit, VideoToolbox, AVFoundation, Network y Security.
+Produce las dos apps en `dist/`. El receptor es universal Intel/ARM. La primera
+compilación descarga Sparkle 2.10.1 y verifica su SHA-256; las siguientes reutilizan
+la copia local. El resto usa frameworks del sistema. Versión, build y clave pública
+de actualización están centralizados en `Config/release.json`.
 
 Pruebas desde una sesión gráfica de la MacBook:
 

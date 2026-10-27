@@ -45,11 +45,30 @@ Consultar [docs/PRUEBAS.md](docs/PRUEBAS.md). Siguen sin verificarse aceleració
 decodificación en Intel, latencia de extremo a extremo, mejora de v0.2.0 en la iMac
 y sesiones largas. Los benchmarks locales usan video sintético, no el enlace Wi‑Fi.
 
-## Actualizar a v0.2.0 y comprobar el retraso
+## Instalar v0.3.0 y habilitar las actualizaciones
 
-1. Desconecta y cierra Sender y Receiver. Descarga **los dos ZIPs de v0.2.0** desde
-   [la release](https://github.com/AlexandroHernandez27/imac-second-display/releases/tag/v0.2.0).
-   Sustituye las copias anteriores y comprueba `v0.2.0` en las dos interfaces.
+v0.3.0 agrega el actualizador y mantiene las mejoras de video de v0.2.0. Descarga
+manualmente Sender y Receiver esta primera vez: v0.2.0 no puede actualizarse sola.
+Coloca cada app en una carpeta local escribible, como `~/Applications`, y cierra la
+copia anterior antes de sustituirla.
+
+Cada app muestra **Buscar actualizaciones…** y la casilla **Buscar versiones
+automáticamente**. La búsqueda automática está habilitada inicialmente, consulta
+GitHub aproximadamente una vez al día mientras la app esté abierta y puede desactivarse.
+Los avisos muestran cambios y permiten instalar, posponer u omitir una versión;
+no se descargan ni instalan actualizaciones silenciosas. Desconecta la pantalla antes
+de actualizar. La instalación cierra y vuelve a abrir la app y requiere reconectar
+manualmente la sesión de video. Actualiza ambas Macs por separado.
+
+macOS puede volver a pedir autorización de apertura o grabación de pantalla por
+la firma ad hoc. El actualizador no garantiza conservar esos permisos. El proceso
+de desarrollo y firma de nuevas versiones está en [docs/ACTUALIZACIONES.md](docs/ACTUALIZACIONES.md).
+
+## Comprobar el retraso con la versión actual
+
+1. Desconecta y cierra Sender y Receiver. Descarga **los dos ZIPs de v0.3.0** desde
+   [la release](https://github.com/AlexandroHernandez27/imac-second-display/releases/tag/v0.3.0).
+   Sustituye las copias anteriores y comprueba `v0.3.0` en las dos interfaces.
 2. Conecta a **1080p / 30 FPS / 12 Mbps**. Pulsa **Prueba de movimiento** en Sender:
    aparecen texto, un contador y una barra que se mueve en la pantalla virtual.
 3. Espera 5–10 segundos. Anota las dos líneas de métricas mientras se mueve la barra.
@@ -98,7 +117,7 @@ usuario ni capturas de contenido personal:
 
 | Prueba | Dato pendiente |
 | --- | --- |
-| Abrir receptor v0.2.0 en Sequoia 15.8.1 | Resultado/error exacto |
+| Abrir receptor v0.3.0 en Sequoia 15.8.1 | Resultado/error exacto |
 | Emparejamiento y pantalla extendida | Ventanas independientes y texto legible |
 | 1080p/30, 1080p/60, después 1440p | Captura/entrega, preparación, ACK, fluidez |
 | CPU y memoria | Monitor de Actividad en ambas Macs tras 10 minutos |

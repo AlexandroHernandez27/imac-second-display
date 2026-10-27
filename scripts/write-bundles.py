@@ -1,9 +1,11 @@
 """Genera metadatos de las apps sin incluir datos del equipo ni credenciales."""
 import plistlib
+import json
 import sys
 from pathlib import Path
 
 roles = sys.argv[1:] or ["Sender", "Receiver"]
+config = json.loads(Path('Config/release.json').read_text())
 if any(role not in ("Sender", "Receiver") for role in roles):
     raise SystemExit("Rol inválido: usa Sender o Receiver")
 for role in roles:
@@ -14,12 +16,23 @@ for role in roles:
         "CFBundleName": f"iMac {role}",
         "CFBundleDisplayName": f"iMac {role}",
         "CFBundlePackageType": "APPL",
-        "CFBundleVersion": "2",
-        "CFBundleShortVersionString": "0.2.0",
+        "CFBundleVersion": str(config['build']),
+        "CFBundleShortVersionString": config['version'],
+        "CFBundleDevelopmentRegion": "es",
         "LSMinimumSystemVersion": "13.0",
         "NSHighResolutionCapable": True,
         "NSLocalNetworkUsageDescription": "Conectar la MacBook y la iMac por la red local para extender el escritorio.",
         "NSScreenCaptureUsageDescription": "Transmitir únicamente la pantalla virtual a la iMac después del emparejamiento.",
+        "SUFeedURL": f"https://raw.githubusercontent.com/AlexandroHernandez27/imac-second-display/main/updates/{role.lower()}.xml",
+        "SUPublicEDKey": config['updatePublicKey'],
+        "SUEnableAutomaticChecks": True,
+        "SUScheduledCheckInterval": 86400,
+        "SUAllowsAutomaticUpdates": False,
+        "SUAutomaticallyUpdate": False,
+        "SUEnableSystemProfiling": False,
+        "SUVerifyUpdateBeforeExtraction": True,
+        "SURequireSignedFeed": True,
+        "SUSignedFeedFailureExpirationInterval": 0,
     }
     with (contents / "Info.plist").open("wb") as file:
         plistlib.dump(info, file)

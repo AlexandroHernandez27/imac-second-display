@@ -94,3 +94,10 @@ que resolvieron el retraso de la iMac hasta medirlo allí.
 Leer `CONTINUAR_EN_IMAC.md`, `docs/PRUEBAS.md`, `docs/ARQUITECTURA.md` y
 `docs/COMPARACION_LANSCREEN.md` antes de continuar. LanScreen se revisó como
 referencia GPLv3; no se incorporó su código.
+
+v0.3.0 añade Sparkle 2.10.1 en ambas apps. Se solicita confirmación para cada
+actualización y no se actualiza durante una sesión de pantalla. Leer
+`docs/ACTUALIZACIONES.md` antes de publicar: los ZIPs y feeds se firman con una
+clave privada guardada en el Llavero, cuenta `imac-second-display-updates`.
+Solo la clave pública está en `Config/release.json`. Nunca exportar ni publicar
+la clave privada. No prometer que la firma ad hoc conserva los permisos de macOS.
