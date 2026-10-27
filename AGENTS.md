@@ -17,14 +17,15 @@ Desarrollar una solución propia para usar una iMac de 27 pulgadas Late 2013 com
 - No asumir que la iMac ejecuta un macOS reciente. Priorizar compatibilidad con el sistema que ya tenga instalado; no requerir parches ni reinstalaciones sin evaluar alternativas.
 - La iMac debe estar encendida y ejecutar el receptor durante el uso.
 
-## Arquitectura inicial por validar
+## Arquitectura implementada
 
 1. La MacBook crea una pantalla virtual que macOS reconoce como pantalla adicional.
 2. El emisor captura únicamente esa pantalla, codifica los fotogramas y los transmite por la red local.
 3. La iMac recibe y decodifica el video, y lo presenta a pantalla completa.
 4. El teclado y el mouse conectados a la MacBook siguen controlando el escritorio extendido.
 
-Esta arquitectura es una propuesta, no una implementación comprobada.
+La pantalla independiente y el flujo completo se probaron localmente en M5.
+El usuario reportó recepción en la iMac con retraso; falta medir allí v0.2.0.
 
 ## Principal incertidumbre técnica
 
@@ -70,7 +71,7 @@ Una prueba de duplicación puede servir para validar el transporte, pero no reem
 - Una MacBook y una iMac dentro de la misma red local.
 - Una pantalla adicional, con resolución y FPS configurables.
 - Conexión manual, receptor a pantalla completa y estados de conexión/error visibles.
-- Emparejamiento explícito antes de transmitir el escritorio y mecanismo de protección de la sesión por definir.
+- Emparejamiento explícito antes de transmitir el escritorio, con clave temporal y TLS-PSK.
 - Sin audio, acceso por Internet, control remoto desde la iMac ni varios receptores en la primera versión.
 - Sin abrir puertos del router ni transmitir el escritorio a servicios externos.
 
@@ -85,6 +86,11 @@ Una prueba de duplicación puede servir para validar el transporte, pero no reem
 ## Estado actual
 
 Existe un prototipo nativo de emisor y receptor. Se comprobó la pantalla independiente,
-captura y reproducción cifrada con ambas apps en M5. No afirmar compatibilidad con la
-iMac hasta probar ambos equipos. Leer `CONTINUAR_EN_IMAC.md`, `docs/PRUEBAS.md` y
-`docs/ARQUITECTURA.md` antes de continuar.
+captura y reproducción cifrada con ambas apps en M5. El usuario reportó en v0.1.0
+2.9 FPS, 0.6 Mbps y ACK de 7 ms, con retraso al mover ventanas y escribir.
+v0.2.0 conserva el último cambio, usa ventana acotada de tres, métricas recientes
+y actividad durante la sesión. Sus benchmarks son sintéticos locales; no afirmar
+que resolvieron el retraso de la iMac hasta medirlo allí.
+Leer `CONTINUAR_EN_IMAC.md`, `docs/PRUEBAS.md`, `docs/ARQUITECTURA.md` y
+`docs/COMPARACION_LANSCREEN.md` antes de continuar. LanScreen se revisó como
+referencia GPLv3; no se incorporó su código.

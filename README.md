@@ -4,14 +4,16 @@ Prototipo nativo para usar una iMac como **pantalla adicional** de una MacBook.
 El escritorio se extiende; las aplicaciones corren en la MacBook. La iMac debe
 permanecer encendida y ejecutar el receptor.
 
-**Estado experimental:** pantalla independiente, captura y reproducción cifrada
-comprobadas con ambas apps ejecutándose en una M5. Compatibilidad y rendimiento
-entre la MacBook y la iMac Late 2013 pendientes de pruebas en ambos equipos.
+**v0.2.0 experimental:** pantalla independiente, captura y reproducción cifrada
+comprobadas con ambas apps ejecutándose en una M5. El usuario reporta imagen en la
+iMac y retraso al mover ventanas/escribir con v0.1.0. Esta versión corrige el flujo
+y permite medirlo mejor; la mejora en la iMac todavía requiere prueba.
 No necesita Apple ID, suscripciones, servicios externos ni abrir puertos del router.
 
 ## Descargar y probar
 
 Descarga las apps en [Releases](https://github.com/AlexandroHernandez27/imac-second-display/releases).
+Actualiza **ambas aplicaciones**, cerrando primero las copias anteriores.
 
 1. En la **MacBook**, abre `iMac Sender.app`. Empieza con 1920 × 1080, 30 FPS y 12 Mbps.
 2. Pulsa **Preparar conexión**. La app muestra una IP y una clave temporal.
@@ -19,7 +21,9 @@ Descarga las apps en [Releases](https://github.com/AlexandroHernandez27/imac-sec
 4. Pulsa **Conectar** y acepta la solicitud en la MacBook.
 5. Concede al emisor el permiso de grabación de pantalla si macOS lo pide. Puede
    requerir cerrar y reabrir la app; prepara entonces una nueva sesión.
-6. En el receptor pulsa **Pantalla completa**. Mueve ventanas por el borde derecho
+6. Pulsa **Prueba de movimiento** en el emisor para medir con una imagen cambiante.
+   Espera cinco segundos y observa captura/entrega; un escritorio quieto puede dar 0 FPS.
+7. En el receptor pulsa **Pantalla completa**. Mueve ventanas por el borde derecho
    de la MacBook. Cambia la posición en Ajustes del Sistema → Pantallas si lo necesitas.
 
 Ambas Macs deben estar en la misma LAN. Se usa TCP 7777; Ethernet utiliza el mismo
@@ -47,8 +51,8 @@ Limitaciones:
 
 - Crear la pantalla depende de **`CGVirtualDisplay`, una API privada de Apple**.
   No se garantiza compatibilidad futura ni distribución por App Store.
-- TCP con un fotograma pendiente de confirmación evita acumular video atrasado,
-  pero la latencia de red puede limitar los FPS.
+- TCP con hasta tres fotogramas pendientes y una sola imagen cruda reciente.
+  Las pérdidas de red todavía pueden añadir esperas por retransmisión.
 - El contenido protegido o apps que impidan captura pueden aparecer negros.
   No se promete compatibilidad con todos los sistemas DRM.
 - Teclado y mouse en la MacBook; sin control remoto desde la iMac.
@@ -71,11 +75,25 @@ Pruebas desde una sesión gráfica de la MacBook:
 ```bash
 bash scripts/test-display.sh --run
 bash scripts/test-protocol.sh --run
+bash scripts/test-video-performance.sh --run
 ```
 
-La primera crea una pantalla temporal, coloca una ventana y verifica la retirada
-al salir. La segunda prueba H.264, TLS-PSK, integridad, límites y rechazo de claves
-incorrectas con video sintético en loopback. No sustituyen la prueba entre equipos.
+La primera comprueba la pantalla independiente. La segunda prueba H.264, TLS-PSK,
+colas, métricas y rechazo de claves incorrectas. La tercera compara ventanas de
+uno/tres fotogramas con codificación y decodificación reales y ACK artificial.
+No sustituyen la prueba entre equipos ni miden el panel.
+
+## Cambios de v0.2.0
+
+- Conserva y envía el último cambio aunque la captura quede inactiva mientras espera un ACK.
+- Admite tres fotogramas pendientes sin romper las dependencias de H.264.
+- Muestra FPS de captura y entrega de los últimos dos segundos, preparación y ACK.
+- Declara la transmisión como actividad de usuario para evitar App Nap durante la sesión;
+  el receptor solicita mantener encendida su pantalla mientras está conectado y recibiendo.
+- Añade un patrón animado y pruebas reproducibles de rendimiento.
+
+La revisión de [LanScreen](docs/COMPARACION_LANSCREEN.md) documenta otras ideas y
+qué diferencias necesitan medición antes de adoptarlas.
 
 **[Continuar en la iMac](CONTINUAR_EN_IMAC.md)** · [Pruebas](docs/PRUEBAS.md) ·
 [Arquitectura](docs/ARQUITECTURA.md) · [Avisos de terceros](THIRD_PARTY_NOTICES.md)

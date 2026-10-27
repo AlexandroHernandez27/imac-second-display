@@ -7,11 +7,11 @@ final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let code = NSSecureTextField(string: "")
     private let status = label("Introduce la dirección IP y la clave que muestra la MacBook.")
     private let video = VideoView(frame: .zero)
+    private let playback = FrameReceiver()
+    private let activity = StreamActivity()
     private var connectButton: NSButton!
     private var channel: PacketChannel?
-    private var authorized = false, pendingFrame = false
-    private var expectedSequence: UInt32 = 1
-    private var epoch = UUID()
+    private var authorized = false, receivedFirstFrame = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureMenu()
@@ -20,6 +20,17 @@ final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         videoWindow = makeWindow("Pantalla de la MacBook · ⌃⌘F para pantalla completa", width: 1100, height: 650)
         videoWindow.delegate = self; videoWindow.contentView = video
         videoWindow.collectionBehavior = [.fullScreenPrimary]
+        playback.render = { [weak self] packet, completion in self?.video.display(packet, completion: completion) }
+        playback.onAcknowledged = { [weak self] sequence in
+            guard let self else { return }
+            self.channel?.send(Wire.ack(sequence))
+            if !self.receivedFirstFrame {
+                self.receivedFirstFrame = true
+                self.activity.start(keepingDisplayAwake: true)
+                self.status.stringValue = "Recibiendo pantalla. Para verla completa usa el botón Pantalla completa."
+            }
+        }
+        playback.onError = { [weak self] message in self?.channel?.close(message) }
         host.placeholderString = "Ejemplo: 192.168.1.10"
         code.placeholderString = "Pega la clave temporal completa"
         connectButton = button("Conectar", target: self, action: #selector(connect))
@@ -29,7 +40,7 @@ final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let stack = NSStackView(views: [label("La pantalla de tu MacBook", size: 25, bold: true),
             label("IP de la MacBook · puerto 7777", bold: true), host,
             label("Clave de emparejamiento", bold: true), code, actions, status,
-            label("Usa el teclado y mouse de la MacBook. Este receptor solo muestra video, sin audio ni control remoto. Pulsa Esc para salir de pantalla completa.", size: 12)])
+            label("v0.2.0 · usa el teclado y mouse de la MacBook. Solo video, sin audio ni control remoto. Pulsa Esc para salir de pantalla completa.", size: 12)])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         controls.contentView!.addSubview(stack)
@@ -55,8 +66,8 @@ final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let parameters = try Pairing.parameters(code: code.stringValue)
             let connection = NWConnection(host: NWEndpoint.Host(ip), port: 7777, using: parameters)
             let peer = PacketChannel(connection)
-            epoch = UUID(); channel = peer; authorized = false; pendingFrame = false; expectedSequence = 1
-            video.reset()
+            channel = peer; authorized = false; receivedFirstFrame = false
+            playback.reset(); video.reset()
             connectButton.isEnabled = false; host.isEnabled = false; code.isEnabled = false
             peer.onReady = { [weak self, weak peer] in
                 self?.status.stringValue = "Conexión cifrada establecida. Acepta la solicitud en la MacBook."
@@ -76,29 +87,16 @@ final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             videoWindow.makeKeyAndOrderFront(nil)
         } else if data == Data([5]), authorized {
             channel.armTimeout(seconds: 10); channel.send(Data([6]))
-        } else if data.first == 3, authorized, !pendingFrame {
+        } else if data.first == 3, authorized {
             do {
-                let packet = try VideoPacket(data: data)
-                guard packet.sequence == expectedSequence else { throw DisplayError("Secuencia de video incorrecta.") }
-                pendingFrame = true
-                let generation = epoch
-                video.display(packet) { [weak self] result in
-                    guard let self, self.epoch == generation else { return }
-                    self.pendingFrame = false
-                    switch result {
-                    case .success:
-                        self.expectedSequence &+= 1
-                        self.channel?.send(Wire.ack(packet.sequence))
-                        self.status.stringValue = "Recibiendo pantalla. Para verla completa usa el botón Pantalla completa."
-                    case .failure(let error): self.channel?.close(error.localizedDescription)
-                    }
-                }
+                try playback.receive(VideoPacket(data: data))
             } catch { channel.close(error.localizedDescription) }
         } else { channel.close("El emisor envió un mensaje inesperado.") }
     }
     private func finish(_ message: String) {
-        epoch = UUID(); channel = nil; authorized = false; pendingFrame = false
-        video.reset(); videoWindow.orderOut(nil)
+        activity.stop()
+        channel = nil; authorized = false; receivedFirstFrame = false
+        playback.reset(); video.reset(); videoWindow.orderOut(nil)
         status.stringValue = message
         connectButton.isEnabled = true; host.isEnabled = true; code.isEnabled = true
         controls.makeKeyAndOrderFront(nil)
@@ -113,7 +111,7 @@ final class ReceiverApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if sender === videoWindow { disconnect(); return false }
         NSApp.terminate(nil); return true
     }
-    func applicationWillTerminate(_ notification: Notification) { channel?.onClose = nil; channel?.close() }
+    func applicationWillTerminate(_ notification: Notification) { activity.stop(); channel?.onClose = nil; channel?.close() }
 }
 
 let app = NSApplication.shared

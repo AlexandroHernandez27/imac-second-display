@@ -35,8 +35,8 @@ enum Pairing {
     }
 }
 
-// Todos los callbacks se serializan en main. Máximo un paquete de video en vuelo,
-// con ACK de aplicación antes de codificar otro fotograma.
+// Callbacks serializados en main. El emisor acota a tres fotogramas pendientes
+// con un receptor v2; un receptor v1 conserva la ventana de uno.
 final class PacketChannel {
     static let maximumPacket = 8 * 1024 * 1024
     let connection: NWConnection
@@ -105,7 +105,8 @@ final class PacketChannel {
 }
 
 enum Wire {
-    static let hello = Data([1, 73, 83, 68, 1]) // ISD versión 1
+    static let helloV1 = Data([1, 73, 83, 68, 1])
+    static let hello = Data([1, 73, 83, 68, 2]) // ISD v2: receptor con cola acotada
     static let accepted = Data([2])
     static func ack(_ sequence: UInt32) -> Data { var data = Data([4]); data.put32(sequence); return data }
 }

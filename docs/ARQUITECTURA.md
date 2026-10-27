@@ -37,12 +37,41 @@ El receptor decodifica/presenta con AVSampleBufferDisplayLayer.
 
 TCP lleva longitud de 32 bits big-endian, tipo y payload, con límite de 8 MiB.
 Cada paquete H.264 incluye secuencia, SPS, PPS y muestra AVCC. Se validan longitudes,
-unidades NAL y resolución. Solo hay un fotograma pendiente de ACK; el receptor confirma
-al encolar, no al presentar. Esto acota la cola pero limita FPS según RTT.
+unidades NAL y resolución. El receptor confirma al encolar, no al presentar.
+
+En v0.2.0 hay hasta tres fotogramas reservados desde entrada al encoder hasta ACK.
+Si se agotan los créditos, se conserva únicamente la imagen cruda más reciente;
+al llegar un ACK se envía aunque ScreenCaptureKit ya no produzca cambios. No se
+descartan muestras H.264 codificadas, porque otras pueden depender de ellas.
+La cola propia del receptor admite tres muestras y conserva el orden al entregarlas
+a AVSampleBufferDisplayLayer. La cola interna de AVFoundation no se mide aquí;
+se respeta `isReadyForMoreMediaData`. Por tanto, esto no garantiza un máximo de
+tres imágenes hasta el panel físico.
+
+El hello v2 negocia la ventana de tres. El emisor v0.2.0 acepta también hello v1
+con ventana de uno. Un receptor v0.2.0 necesita emisor v0.2.0: actualizar ambos.
+El formato de muestras y ACK se conserva. `TCP_NODELAY` está activado.
+
+Las métricas usan reloj monotónico y ventana móvil de dos segundos. Captura cuenta
+las imágenes completas de ScreenCaptureKit; entrega cuenta ACKs. Preparación mide
+desde el callback de captura hasta serializar el video, incluida espera de crédito;
+ACK mide desde esa serialización hasta recibir la confirmación. No es RTT puro ni
+latencia de movimiento a fotón. Bitrate muestra bytes de video, sin sobrecarga TLS/TCP.
+Un escritorio estático puede bajar a cero FPS sin avería.
 
 Heartbeat cada 2 segundos; ausencia de respuesta durante 10 segundos o de ACK por
 más de 5 segundos cierra la sesión. Reconexión manual con clave nueva. Ethernet
 reutiliza el mismo protocolo; no hay servicios externos ni señalización en Internet.
+
+## Actividad y reposo
+
+`StreamActivity` solicita actividad `.userInitiated` y `.latencyCritical` durante
+la transmisión. Así declara que el trabajo en segundo plano responde al usuario.
+El receptor agrega `.idleDisplaySleepDisabled` después de encolar la primera imagen.
+La actividad se libera en desconexión, fallo, reposo explícito o terminación. El
+heartbeat mantiene viva una pantalla estática, pero una conexión perdida termina
+la sesión y libera la actividad. No se cambian ajustes globales de energía.
+Se espera mayor consumo que con una app suspendida; medir sesiones largas en iMac.
 
 ## Emparejamiento
 
@@ -67,3 +96,5 @@ al exterior; una IP privada no protege contra un router configurado para reenvia
 - [Apple: clave TLS precompartida](https://developer.apple.com/documentation/security/sec_protocol_options_add_pre_shared_key(_:_:_:)).
 - [Apple: protocolo entre dispositivos](https://developer.apple.com/documentation/network/building-a-custom-peer-to-peer-protocol).
 - [Apple: AVSampleBufferDisplayLayer](https://developer.apple.com/documentation/avfoundation/avsamplebufferdisplaylayer).
+- [Apple: actividades y App Nap](https://developer.apple.com/library/archive/documentation/Performance/Conceptual/power_efficiency_guidelines_osx/PrioritizeWorkAtTheAppLevel.html).
+- [Revisión de LanScreen, decisiones y licencia](COMPARACION_LANSCREEN.md).

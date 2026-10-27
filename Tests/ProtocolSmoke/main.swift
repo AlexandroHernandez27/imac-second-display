@@ -87,11 +87,16 @@ func testCodec() throws -> Data {
 }
 
 func testNetwork(payload: Data, wrongKey: Bool) throws {
+    let payloads: [Data] = (1...3).map { sequence in
+        var data = payload, bytes = Data(); bytes.put32(UInt32(sequence))
+        data.replaceSubrange(1..<5, with: bytes)
+        return data
+    }
     let serverCode = try Pairing.generate()
     let params = try Pairing.parameters(code: serverCode)
     params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
     let listener = try NWListener(using: params)
-    var ready = false, received = false, acknowledged = false, closed = false
+    var ready = false, received = 0, acknowledged = 0, closed = false
     var server: PacketChannel?, client: PacketChannel?
     var failure: String?
     listener.stateUpdateHandler = { state in
@@ -101,8 +106,11 @@ func testNetwork(payload: Data, wrongKey: Bool) throws {
     listener.newConnectionHandler = { connection in
         let peer = PacketChannel(connection); server = peer
         peer.onPacket = { data in
-            if data == Wire.hello { peer.send(Wire.accepted); peer.send(payload) }
-            else if data == Wire.ack(1) { acknowledged = true }
+            if data == Wire.hello {
+                peer.send(Wire.accepted)
+                for payload in payloads { peer.send(payload) }
+            }
+            else if acknowledged < 3, data == Wire.ack(UInt32(acknowledged + 1)) { acknowledged += 1 }
             else { failure = "Mensaje inesperado en prueba" }
         }
         peer.onClose = { _ in closed = true }
@@ -120,24 +128,96 @@ func testNetwork(payload: Data, wrongKey: Bool) throws {
     peer.onReady = { peer.send(Wire.hello) }
     peer.onPacket = { data in
         if data == Wire.accepted { return }
-        if data == payload { received = true; peer.send(Wire.ack(1)) }
+        if received < 3, data == payloads[received] { received += 1; peer.send(Wire.ack(UInt32(received))) }
         else { failure = "El video recibido cambió" }
     }
     peer.onClose = { _ in closed = true }
     peer.start()
     if wrongKey {
-        try check(waitFor(15) { closed || received } && closed && !received, "Se aceptó una clave incorrecta")
+        try check(waitFor(15) { closed || received > 0 } && closed && received == 0, "Se aceptó una clave incorrecta")
         print("PASS: clave incorrecta rechazada sin entregar video.")
     } else {
-        try check(waitFor(10) { acknowledged || failure != nil || closed } && received && acknowledged, failure ?? "Falló TLS/entrega/ACK")
-        print("PASS: TLS-PSK local → H.264 íntegro → ACK.")
+        try check(waitFor(10) { acknowledged == 3 || failure != nil || closed } && received == 3 && acknowledged == 3, failure ?? "Falló TLS/entrega/ACK")
+        print("PASS: TLS-PSK local → tres muestras H.264 íntegras en tránsito → ACKs en orden.")
     }
+}
+
+func testFlowAndMetrics() throws {
+    var flow = FrameFlow<Int>(capacity: 3)
+    for value in 1...3 {
+        flow.offer(value)
+        let next = flow.takeNext()
+        try check(next?.sequence == UInt32(value) && next?.frame == value, "Reserva fuera de orden")
+    }
+    flow.offer(4)
+    try check(flow.offer(5), "No reemplazó la imagen cruda obsoleta")
+    try check(flow.takeNext() == nil && flow.inFlight.count == 3, "La ventana excedió tres fotogramas")
+    try check(!flow.acknowledge(2) && flow.inFlight.count == 3, "Aceptó un ACK fuera de orden")
+    try check(flow.acknowledge(1), "Rechazó el primer ACK")
+    let final = flow.takeNext() // Sin nuevos callbacks de captura: conserva el último cambio.
+    try check(final?.frame == 5 && final?.sequence == 4, "Se perdió el último cambio al quedar inactiva la captura")
+    try check(!flow.acknowledge(1), "Aceptó un ACK duplicado")
+    flow.reset()
+    try check(flow.inFlight.isEmpty && flow.latest == nil, "La reconexión conserva estado anterior")
+    var legacy = FrameFlow<Int>(capacity: 1)
+    legacy.offer(1); _ = legacy.takeNext(); legacy.offer(2)
+    try check(legacy.takeNext() == nil, "Rompió la ventana del receptor antiguo")
+    try check(legacy.acknowledge(1) && legacy.takeNext()?.frame == 2, "Perdió la última imagen en modo antiguo")
+
+    var metrics = RecentVideoMetrics(now: 0)
+    // Un minuto inactivo seguido de dos segundos de movimiento a 60 FPS.
+    for index in 0..<120 {
+        let time = 60 + Double(index) / 60
+        let sequence = UInt32(index + 1)
+        metrics.captured(at: time, replaced: false)
+        metrics.reserved(sequence, capturedAt: time)
+        metrics.sent(sequence, bytes: 1000, at: time + 0.001)
+        try check(metrics.acknowledged(sequence, at: time + 0.008), "ACK no registrado")
+    }
+    let moving = metrics.snapshot(at: 62, waitingLatest: false)
+    try check(moving.deliveredFPS > 59 && moving.capturedFPS > 59, "Los FPS siguen promediando el minuto inactivo")
+    try check(abs((moving.ackMS ?? 0) - 7) < 0.01, "El ACK no usa el reloj de la sesión")
+    let idle = metrics.snapshot(at: 65, waitingLatest: false)
+    try check(idle.deliveredFPS == 0 && idle.megabitsPerSecond == 0 && idle.ackMS == nil && idle.sourceIdle,
+        "Las métricas no caducan al quedar inactiva la pantalla")
+    print("PASS: ventana acotada, última actualización tras idle, ACKs y métricas recientes.")
+}
+
+func testReceiverQueue(payload: Data) throws {
+    func packet(_ sequence: UInt32) throws -> VideoPacket {
+        var data = payload, bytes = Data(); bytes.put32(sequence)
+        data.replaceSubrange(1..<5, with: bytes)
+        return try VideoPacket(data: data)
+    }
+    let receiver = FrameReceiver()
+    var completions = [(Result<Void, Error>) -> Void]()
+    var acks = [UInt32]()
+    receiver.render = { _, completion in completions.append(completion) }
+    receiver.onAcknowledged = { acks.append($0) }
+    for sequence in 1...3 { try receiver.receive(packet(UInt32(sequence))) }
+    try check(receiver.count == 3 && completions.count == 1, "El renderer no serializa su cola")
+    try check(rejects { try receiver.receive(packet(4)) }, "Aceptó más de tres fotogramas")
+    completions[0](.success(()))
+    try check(acks == [1] && receiver.count == 2 && completions.count == 2, "No liberó el siguiente fotograma")
+    completions[1](.success(())); completions[2](.success(()))
+    try check(acks == [1, 2, 3] && receiver.count == 0, "ACK fuera de orden")
+    try receiver.receive(packet(4))
+    let stale = completions[3]
+    receiver.reset()
+    try receiver.receive(packet(1))
+    stale(.success(()))
+    try check(receiver.count == 1 && acks == [1, 2, 3], "Una respuesta vieja contaminó la reconexión")
+    completions[4](.success(()))
+    try check(receiver.count == 0 && acks == [1, 2, 3, 1], "La nueva sesión no pudo continuar")
+    print("PASS: receptor lento, cola máxima, orden y callbacks obsoletos tras reconectar.")
 }
 
 do {
     try check(isLocalIPv4("192.168.1.2") && isLocalIPv4("10.0.0.2") && !isLocalIPv4("8.8.8.8") && !isLocalIPv4("192.168.1.999"), "Filtro LAN inválido")
     try check(rejects { _ = try Pairing.parameters(code: "123456") }, "Aceptó una clave débil")
     let payload = try testCodec()
+    try testFlowAndMetrics()
+    try testReceiverQueue(payload: payload)
     try testNetwork(payload: payload, wrongKey: false)
     try testNetwork(payload: payload, wrongKey: true)
     print("PASS: pruebas de protocolo completas. No se capturó el escritorio.")

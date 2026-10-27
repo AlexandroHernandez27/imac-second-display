@@ -15,12 +15,12 @@ import Network
     private var channel: PacketChannel?
     private var display = DisplayManager()
     private var capture: CapturePipeline?
+    private let activity = StreamActivity()
     private var startTask: Task<Void, Never>?
     private var pattern: NSWindow?
     private var heartbeat: Timer?
-    private var pending: (sequence: UInt32, sent: Date)?
-    private var delivered = 0, bytesSent = 0
-    private var since = Date()
+    private var metricsTimer: Timer?
+    private var frameWindow = 3
     private var streaming = false, stopping = false, receivedHello = false
     private var generation = UUID()
 
@@ -46,9 +46,9 @@ import Network
             label("2. Resolución, fluidez y calidad", bold: true), modes,
             label("3. Clave temporal para pegar en el receptor", bold: true), code, actions,
             status, metrics,
-            button("Mostrar patrón de prueba", target: self, action: #selector(showPattern)),
+            button("Prueba de movimiento", target: self, action: #selector(showPattern)),
             label("Mueve ventanas por el borde derecho de la MacBook. Puedes cambiar la posición en Ajustes del Sistema → Pantallas.", size: 12),
-            label("Prototipo experimental · sin audio · API privada para crear la pantalla", size: 11)
+            label("v0.2.0 · experimental · sin audio · API privada para crear la pantalla", size: 11)
         ])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -99,7 +99,8 @@ import Network
     private func packet(_ data: Data) {
         guard let channel, !stopping else { return }
         if !receivedHello {
-            guard data == Wire.hello else { channel.close("El receptor usa un protocolo incompatible."); return }
+            guard data == Wire.hello || data == Wire.helloV1 else { channel.close("Actualiza ambas aplicaciones: protocolo incompatible."); return }
+            frameWindow = data == Wire.hello ? 3 : 1
             receivedHello = true
             let epoch = generation
             let alert = NSAlert()
@@ -112,13 +113,8 @@ import Network
                 else { self.stopSession("Conexión rechazada.") }
             }
         } else if data.first == 4, data.count == 5, streaming {
-            guard let sequence = try? data.uint32(at: 1), pending?.sequence == sequence,
-                  capture?.acknowledge(sequence) == true, let frame = pending else { channel.close("Confirmación de video inválida."); return }
-            delivered += 1
-            let rtt = Date().timeIntervalSince(frame.sent) * 1000
-            let elapsed = max(0.1, Date().timeIntervalSince(since))
-            metrics.stringValue = String(format: "H.264 por hardware · %.1f FPS entregados · %.1f Mbps · ACK %.0f ms", Double(delivered)/elapsed, Double(bytesSent)*8/elapsed/1_000_000, rtt)
-            pending = nil
+            guard let sequence = try? data.uint32(at: 1) else { channel.close("Confirmación inválida."); return }
+            capture?.acknowledge(sequence)
         } else if data == Data([6]), streaming {
             channel.armTimeout(seconds: 10)
         } else { channel.close("Mensaje inesperado del receptor.") }
@@ -138,29 +134,41 @@ import Network
                 guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
                     throw DisplayError("Activa iMac Sender en Ajustes → Privacidad y seguridad → Grabación de pantalla; después cierra y abre la app.")
                 }
-                let pipeline = CapturePipeline()
+                let pipeline = CapturePipeline(window: frameWindow)
                 capture = pipeline
                 pipeline.onFrame = { [weak self] data, sequence in
                     guard let self, self.generation == epoch, self.streaming, !self.stopping else { return }
-                    self.pending = (sequence, Date()); self.bytesSent += data.count
                     self.channel?.send(data)
                 }
                 pipeline.onError = { [weak self] reason in self?.stopSession(reason) }
                 // accepted debe preceder al primer fotograma en el flujo TCP.
                 channel?.send(Wire.accepted)
                 streaming = true
+                activity.start(keepingDisplayAwake: false)
                 try await pipeline.start(displayID: display.id, width: width, height: height, fps: rate, bitrate: bitrate)
                 try Task.checkCancellation()
-                since = Date(); delivered = 0; bytesSent = 0
                 status.stringValue = "Conectado · \(width) × \(height), hasta \(rate) FPS. Mueve las ventanas hacia la derecha."
-                heartbeat = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-                    Task { @MainActor in
-                    guard let self else { return }
-                    if let pending = self.pending, Date().timeIntervalSince(pending.sent) > 5 { self.stopSession("La iMac dejó de confirmar el video."); return }
-                    self.channel?.send(Data([5]))
-                    }
+                heartbeat = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
+                    Task { @MainActor in self?.channel?.send(Data([5])) }
                 }
+                RunLoop.main.add(heartbeat!, forMode: .common)
+                metricsTimer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+                    Task { @MainActor in self?.refreshMetrics(epoch: epoch, fps: rate) }
+                }
+                RunLoop.main.add(metricsTimer!, forMode: .common)
             } catch { if generation == epoch { stopSession(error.localizedDescription) } }
+        }
+    }
+    private func refreshMetrics(epoch: UUID, fps: Int) {
+        capture?.metrics { [weak self] sample in
+            guard let self, self.generation == epoch, self.streaming else { return }
+            if sample.oldestPendingAge > 5 { self.stopSession("El video dejó de avanzar. Vuelve a conectar la iMac."); return }
+            let preparation = sample.preparationMS.map { String(format: "%.0f", $0) } ?? "—"
+            let ack = sample.ackMS.map { String(format: "%.0f", $0) } ?? "—"
+            let idle = sample.sourceIdle ? " · sin nuevos fotogramas" : ""
+            let legacy = self.frameWindow == 1 ? " · actualiza el receptor para mejorar el envío" : ""
+            self.metrics.stringValue = String(format: "Últimos 2 s · captura %.1f FPS · entrega %.1f / %d FPS · %.1f Mbps", sample.capturedFPS, sample.deliveredFPS, fps, sample.megabitsPerSecond)
+                + "\nH.264 · preparación \(preparation) ms · ACK \(ack) ms · pendientes \(sample.inFlight)/\(self.frameWindow)\(idle)\(legacy)"
         }
     }
     @objc private func showPattern() {
@@ -170,9 +178,7 @@ import Network
             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false, screen: screen)
         patternWindow.isReleasedWhenClosed = false
         patternWindow.title = "Escritorio extendido · prueba de legibilidad"
-        let text = label("Pantalla independiente\n\nEsta ventana corre en la MacBook M5.\nLa estás viendo por la red local.\n\nAa Bb Cc · 0123456789\nTexto de prueba: código, documentos y navegación.\n\nMueve aquí cualquier ventana de la MacBook.", size: 27)
-        text.frame = NSRect(x: 35, y: 40, width: 830, height: 460)
-        patternWindow.contentView?.addSubview(text)
+        patternWindow.contentView = MotionPatternView(frame: NSRect(x: 0, y: 0, width: 900, height: 550))
         patternWindow.orderFrontRegardless(); pattern = patternWindow
     }
     @objc private func copyCode() { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(code.stringValue, forType: .string) }
@@ -190,13 +196,15 @@ import Network
     private func stopSession(_ reason: String) {
         guard !stopping else { return }
         stopping = true; generation = UUID(); streaming = false
+        activity.stop()
         status.stringValue = reason
         heartbeat?.invalidate(); heartbeat = nil
+        metricsTimer?.invalidate(); metricsTimer = nil
         let startup = startTask; startTask = nil; startup?.cancel()
         channel?.onClose = nil; channel?.close(); channel = nil
         listener?.cancel(); listener = nil
         pattern?.orderOut(nil); pattern = nil
-        display.stop(); pending = nil; receivedHello = false
+        display.stop(); receivedHello = false
         code.stringValue = ""; stopButton.isEnabled = false
         Task { @MainActor in
             await startup?.value
@@ -205,7 +213,8 @@ import Network
         }
     }
     func applicationWillTerminate(_ notification: Notification) {
-        heartbeat?.invalidate(); listener?.cancel()
+        activity.stop()
+        heartbeat?.invalidate(); metricsTimer?.invalidate(); listener?.cancel()
         channel?.onClose = nil; channel?.close(); display.stop()
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

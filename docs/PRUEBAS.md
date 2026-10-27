@@ -1,6 +1,6 @@
 # Registro de pruebas
 
-## 2026-10-27 · MacBook M5
+## 2026-10-27 · v0.1.0 · MacBook M5
 
 - Compilación: PASS. Emisor arm64 y receptor universal x86_64/arm64.
 - `codesign --verify --strict`: PASS para ambas apps; firma local, sin notarización.
@@ -31,5 +31,64 @@
   desconectó» y habilitó los controles de conexión. La consulta de pantallas
   posterior confirmó que solo quedaba la pantalla original.
 
-Pendientes: ejecución en iMac, 1440p/60 FPS, latencia de extremo a extremo,
-CPU/memoria, reconexión prolongada, cortes reales de Wi‑Fi y reposo de ambos equipos.
+## Reporte del usuario · v0.1.0 en iMac
+
+El usuario reportó imagen con «H.264 por hardware · 2.9 FPS entregados · 0.6 Mbps ·
+ACK 7 ms» y retraso al mover ventanas o escribir. Resolución, límite de FPS y tiempo
+de sesión no registrados. El texto de hardware se refiere al **encoder de la MacBook**,
+no confirma aceleración de decodificación Intel. El contador de FPS acumulaba toda
+la sesión, incluyendo periodos quietos. No se atribuye el retraso solo a Wi‑Fi.
+
+## 2026-10-27 · v0.2.0 · MacBook M5
+
+- Compilación completa: PASS. Sender arm64, Receiver universal arm64/x86_64.
+- Protocolo: PASS. H.264 real con dimensiones/color correctos; parser rechaza
+  truncamientos/tamaños inválidos; TLS-PSK entrega tres muestras en tránsito y sus
+  ACKs en orden; clave equivocada rechazada sin video.
+- Flujo: PASS. Máximo tres pendientes, reemplazo de imagen cruda, último cambio
+  enviado tras ACK sin otra captura, rechazo de ACK duplicado/desordenado y ventana
+  de uno compatible con el receptor anterior.
+- Métricas: PASS. Tras un minuto inactivo, dos segundos a 60 FPS se reflejan como
+  aproximadamente 60, no como promedio de toda la sesión. Los datos caducan al
+  detenerse la fuente y no conservan un ACK antiguo como si fuera actual.
+- Receptor: PASS. Cola lenta de tres, rechazo de exceso, ACK ordenado y descarte
+  de callbacks de la sesión anterior tras reset.
+- Actividad: una prueba local con `StreamActivity` y `pmset -g assertions` confirmó
+  `PreventUserIdleDisplaySleep` y `PreventUserIdleSystemSleep` durante la sesión y
+  su retirada al detenerla. No se modificaron preferencias globales de energía.
+  Falta medir impacto real de App Nap y consumo en la iMac.
+
+### Benchmark del flujo final
+
+Ejecutado con `bash scripts/test-video-performance.sh --run`: fuente sintética
+1920 × 1080 / 60 FPS / 12 Mbps, 180 imágenes por caso, encoder por hardware de
+producción, parser y FrameReceiver reales, decoder VideoToolbox. El ACK se demora
+artificialmente **después** de decodificar. No usa sockets, ScreenCaptureKit ni panel.
+FPS de la ventana de dos segundos al final del movimiento; pueden exceder levemente
+el objetivo por límites de ventana y temporización.
+
+| Ventana | Demora artificial de ACK | FPS captura / entrega | Preparación | ACK medido | Último marcador |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 7 ms | 60.0 / 60.0 | 4.6 ms | 9.7 ms | 180/180 |
+| 3 | 7 ms | 60.0 / 60.0 | 4.6 ms | 9.5 ms | 180/180 |
+| 1 | 40 ms | 60.5 / 20.0 | 17.4 ms | 45.4 ms | 180/180 |
+| 3 | 40 ms | 60.0 / 60.0 | 4.5 ms | 43.6 ms | 180/180 |
+
+PASS: todos conservan la última actualización al detener la fuente y vacían sus
+colas. La ventana de tres sostiene el flujo con ACK demorado. La ventana de uno
+usa el **código nuevo configurado a uno**, no es una ejecución del binario v0.1.0.
+Un ensayo previo dio 19.5 frente a 58 FPS con demora de 40 ms; la variación entre
+ejecuciones impide prometer un valor exacto. A 7 ms ambas ventanas alcanzan 60 FPS
+en este entorno: ese ACK no explica por sí solo el reporte de 2.9 FPS.
+
+### Referencia externa
+
+Se revisó LanScreen y se compararon tres configuraciones del encoder en dos rondas.
+PASS en entrega y último marcador; la ventaja observada de desactivar LLRC/RealTime
+fue pequeña. Se conservan ambos activados en producción.
+Ver [comparación, resultados y fuentes](COMPARACION_LANSCREEN.md).
+
+Pendientes en v0.2.0: captura real con la nueva versión y ambos equipos, aceleración
+Intel, salida de pantalla completa, 1440p/60 FPS, latencia física, CPU/memoria,
+sesión de 30 minutos, reconexión, cortes Wi‑Fi y reposo. Las pruebas de v0.1.0 no
+se presentan como si se hubieran repetido con v0.2.0.

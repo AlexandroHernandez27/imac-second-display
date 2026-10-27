@@ -17,7 +17,7 @@ por Wi‑Fi. Las aplicaciones corren en la MacBook; la iMac solo reproduce video
 `iMac Sender.app` crea la pantalla, captura solo ese ID, codifica H.264 por hardware
 y transmite por TLS. `iMac Receiver.app`, universal Intel/ARM, reproduce con
 AVFoundation y ofrece pantalla completa. Hay IP manual, clave temporal, aceptación
-explícita, resolución/FPS/bitrate configurables, patrón de texto y cierre de sesión.
+explícita, resolución/FPS/bitrate configurables, patrón animado y cierre de sesión.
 
 La pantalla vive en un proceso auxiliar: liberar `CGVirtualDisplay` dentro del
 proceso no la retiraba inmediatamente en esta versión. Salir del proceso sí la
@@ -34,9 +34,39 @@ Comprobado en la MacBook:
 - TLS-PSK en loopback: paquete íntegro y ACK. Clave incorrecta rechazada sin video.
 - Rechazo de mensajes truncados y tamaños inválidos.
 
-Consultar [docs/PRUEBAS.md](docs/PRUEBAS.md) para el resultado actualizado de la captura
-real con ambas interfaces en la MacBook. **Nada de esto certifica todavía la iMac**,
-la decodificación por hardware en Intel, la latencia entre equipos ni sesiones largas.
+El usuario ya reportó imagen en la iMac, pero también retraso al mover ventanas y
+escribir: «2.9 FPS entregados · 0.6 Mbps · ACK 7 ms» en v0.1.0. No se registraron
+resolución, FPS elegidos ni duración de esa lectura. El contador anterior promediaba
+toda la sesión, por lo que no sirve para atribuir el retraso a una etapa concreta.
+La revisión encontró además que podía perderse el último cambio si llegaba mientras
+se esperaba un ACK y la captura quedaba inactiva.
+
+Consultar [docs/PRUEBAS.md](docs/PRUEBAS.md). Siguen sin verificarse aceleración de
+decodificación en Intel, latencia de extremo a extremo, mejora de v0.2.0 en la iMac
+y sesiones largas. Los benchmarks locales usan video sintético, no el enlace Wi‑Fi.
+
+## Actualizar a v0.2.0 y comprobar el retraso
+
+1. Desconecta y cierra Sender y Receiver. Descarga **los dos ZIPs de v0.2.0** desde
+   [la release](https://github.com/AlexandroHernandez27/imac-second-display/releases/tag/v0.2.0).
+   Sustituye las copias anteriores y comprueba `v0.2.0` en las dos interfaces.
+2. Conecta a **1080p / 30 FPS / 12 Mbps**. Pulsa **Prueba de movimiento** en Sender:
+   aparecen texto, un contador y una barra que se mueve en la pantalla virtual.
+3. Espera 5–10 segundos. Anota las dos líneas de métricas mientras se mueve la barra.
+   Mantén el emisor en segundo plano un minuto y comprueba si cambia la fluidez.
+4. Cierra el patrón. Mueve una ventana a la iMac y escribe una frase. Al dejar de
+   teclear, verifica que el último carácter aparece sin necesitar otro movimiento.
+5. Desconecta y repite a **1080p / 60 FPS / 12 Mbps**. Si la iMac no sigue el ritmo,
+   compara **720p / 60 FPS**. Evalúa 1440p después de obtener una referencia estable.
+6. Registra CPU/memoria en ambos equipos y la sensación de retraso. Para estimar
+   latencia física se necesita una prueba con cámara y referencia simultánea;
+   el ACK no la mide.
+
+v0.2.0 conserva la última imagen cruda y permite hasta tres fotogramas pendientes,
+con orden H.264. Un receptor antiguo usa ventana de uno; un receptor nuevo no es
+compatible con el emisor antiguo. La solución práctica es actualizar ambos.
+La sesión solicita evitar App Nap y mantener despierto el panel receptor; al
+desconectarse libera esa actividad. No modifica ajustes globales de energía.
 
 ## Primera prueba en la iMac
 
@@ -50,7 +80,7 @@ la decodificación por hardware en Intel, la latencia entre equipos ni sesiones 
 4. Conecta desde el receptor y acepta en la MacBook. El permiso de grabación de
    pantalla se concede al emisor en la MacBook; reinicia esa app si macOS lo pide.
    Autoriza las apps en avisos de red local/firewall de tu LAN.
-5. Activa Pantalla completa en la iMac y pulsa Mostrar patrón de prueba en la MacBook.
+5. Activa Pantalla completa en la iMac y pulsa Prueba de movimiento en la MacBook.
 6. Comprueba que el patrón está en la pantalla adicional, que la principal conserva
    su contenido y que puedes mover una ventana entre ambas.
 7. Prueba escribir, seleccionar texto, desplazarte y mover ventanas. Después prueba
@@ -68,9 +98,9 @@ usuario ni capturas de contenido personal:
 
 | Prueba | Dato pendiente |
 | --- | --- |
-| Abrir receptor Intel en Sequoia 15.8.1 | Resultado/error exacto |
+| Abrir receptor v0.2.0 en Sequoia 15.8.1 | Resultado/error exacto |
 | Emparejamiento y pantalla extendida | Ventanas independientes y texto legible |
-| 1080p/30, 1440p/30 y 1440p/60 | FPS entregados y fluidez observada |
+| 1080p/30, 1080p/60, después 1440p | Captura/entrega, preparación, ACK, fluidez |
 | CPU y memoria | Monitor de Actividad en ambas Macs tras 10 minutos |
 | Latencia de interacción | Método y medición documentados |
 | Desconexión normal | Monitor virtual desaparece; ventanas recuperables |
@@ -79,9 +109,19 @@ usuario ni capturas de contenido personal:
 | Clave incorrecta/segundo receptor | No recibe escritorio |
 | Sesión de 30 minutos | Estabilidad, consumo y temperatura |
 
-**ACK ms no es latencia de movimiento a fotón**: mide hasta recepción/encolado,
-no presentación en el panel. Los FPS indican fotogramas entregados; un escritorio
-estático puede generar pocos fotogramas.
+Las métricas de v0.2.0 corresponden a los **últimos dos segundos**:
+
+- **Captura:** imágenes completas recibidas de ScreenCaptureKit.
+- **Entrega:** confirmaciones del receptor. No son refrescos físicos del panel.
+- **Preparación:** desde callback de captura hasta video serializado; incluye
+  espera de crédito y codificación.
+- **ACK:** desde video serializado hasta confirmación de encolado. Incluye colas,
+  red e interfaz; no es RTT puro ni latencia de movimiento a fotón.
+- **Pendientes:** hasta tres en el flujo propio, sin contar la cola interna de AVFoundation.
+
+Con la pantalla quieta, 0 FPS y «sin nuevos fotogramas» son normales. Si durante
+el patrón captura y entrega son bajas, investigar captura/actividad del emisor.
+Si captura es alta y entrega baja, revisar preparación, ACK, CPU de la iMac y red.
 
 ## Diagnóstico
 
@@ -100,8 +140,10 @@ estático puede generar pocos fotogramas.
   terminar y macOS retirar el monitor virtual.
 - **Imagen negra:** prueba primero el patrón y una ventana normal para distinguir
   un problema general de uno específico de contenido protegido.
-- **Lentitud:** compara 720p/30 y 1080p/15; reduce bitrate. Prueba Ethernet si ya
-  hay adaptadores. No comprar accesorios antes de medir.
+- **Lentitud:** usa primero la prueba animada anterior. Compara 720p/60 para reducir
+  carga sin bajar la frecuencia solicitada, y 1080p/30 para medir el límite de la
+  iMac. Reduce bitrate si hay congestión; prueba Ethernet si ya hay adaptadores.
+  No comprar accesorios antes de medir.
 
 ## Continuar el código
 
@@ -127,10 +169,17 @@ Siguientes prioridades:
 
 1. Corregir fallos observados en la iMac con evidencia reproducible.
 2. Medir aceleración de decodificación, latencia, memoria y consumo.
-3. Si el ACK por fotograma limita los FPS, evaluar una ventana acotada de varios
-   fotogramas o UDP/WebRTC, conservando cifrado, autorización y recuperación de H.264.
+3. La ventana de tres ya está implementada. Si persiste retraso, separar decoder,
+   presentación y retransmisiones TCP antes de migrar a UDP/WebRTC; conservar
+   cifrado, autorización y recuperación de H.264.
 4. Mejorar cambios de red/reposo, descubrimiento Bonjour e interfaz.
 5. Audio, entrada desde receptor, Internet y varios receptores siguen fuera del alcance.
 
 Proyecto independiente de cualquier otro repositorio: no incorporar datos,
 credenciales ni configuración ajenos. Mantener documentación en español.
+
+El usuario propuso [LanScreen](https://github.com/kendalpercimoney/imac-second-display).
+La comparación, referencias a código, licencia y experimentos del encoder están en
+[docs/COMPARACION_LANSCREEN.md](docs/COMPARACION_LANSCREEN.md). No se incorporó código
+de ese proyecto. Las siguientes ideas candidatas son cursor independiente y
+diagnóstico explícito del decoder Intel, no cambios de transporte sin medición.
