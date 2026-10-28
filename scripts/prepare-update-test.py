@@ -18,7 +18,7 @@ sdk = subprocess.check_output(['xcrun', '--show-sdk-path'], text=True).strip()
 swift = ['xcrun', 'swiftc', '-swift-version', '5', '-O', '-sdk', sdk, '-target', 'arm64-apple-macosx13.0',
          '-module-cache-path', str(root / '.build/module-cache')]
 binary = fixture / 'TestUpdater'
-subprocess.run(swift + [str(root / 'Sources/Shared/Support.swift'), str(root / 'Sources/Updates/AppUpdater.swift'),
+subprocess.run(swift + [str(root / 'Sources/Shared/Support.swift'), str(root / 'Sources/Shared/Diagnostics.swift'), str(root / 'Sources/Updates/AppUpdater.swift'),
     str(root / 'Tests/UpdateSmoke/main.swift'), '-F', str(vendor), '-framework', 'Sparkle', '-framework', 'AppKit',
     '-framework', 'Network', '-Xlinker', '-rpath', '-Xlinker', '@executable_path/../Frameworks', '-o', str(binary)], check=True)
 for name in ('TestKey', 'VerifySignature'):

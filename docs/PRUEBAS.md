@@ -118,3 +118,34 @@ Pendiente: actualización real en Intel/Sequoia, conservación o renovación de 
 en una instalación de usuario, carpeta protegida que solicite autorización, caída de
 red durante descarga y posponer/omitir en UI. La prueba de sustitución local no
 certifica esas situaciones. El flujo de video no cambió en esta versión.
+
+## 2026-10-27 · v0.3.1 · Diagnóstico y protocolo incompatible
+
+Reporte: Receiver indicaba «El otro equipo se desconectó» y Sender «El receptor
+usa un protocolo incompatible» después de descargar v0.3.0. Se inspeccionó el bundle
+del proceso activo: todavía era **Sender v0.1.0/build 1** y su ejecutable contenía
+exactamente ese texto. Esa versión rechaza el saludo v2. Una comprobación posterior
+ya encontró Sender v0.3.0/build 3 abierto. No se registra todavía un resultado de
+conexión entre los dos equipos con las copias correctas.
+
+- Compilación Sender arm64 y Receiver arm64/x86_64: PASS.
+- Diagnósticos: PASS en escritura concurrente, tres archivos acotados, permisos
+  0700/0600, historial tras reinicio, metadatos en exportación después de rotar,
+  códigos TLS y errores subyacentes, omisión de datos sensibles sintéticos y
+  comunicación del fallo de almacenamiento. `bash scripts/test-diagnostics.sh --run`.
+- Protocolo: PASS en H.264 y color/dimensiones, saludos v1/v2 y rechazo de desconocidos,
+  TLS real con tres muestras/ACKs, cierre remoto registrado y clave incorrecta
+  rechazada con código TLS. No se registró la dirección de loopback.
+  El primer intento dentro del sandbox falló al crear el encoder con -12902;
+  al ejecutar con acceso al hardware las pruebas pasaron.
+- Pipeline: PASS en cuatro casos sintéticos de ventana uno/tres y ACK artificial
+  de 7/40 ms; todos entregaron el marcador final 180/180. No es una prueba Wi‑Fi,
+  de ScreenCaptureKit ni del panel; no se atribuye una mejora de rendimiento a esta versión.
+- App real: Receiver v0.3.1 inició y guardó `app_launch` con build 4 y protocolo 2.
+  La herramienta de interfaz falló con ScreenCaptureKit -3811; no se da por verificada
+  visualmente la hoja de guardar. La generación del archivo y la persistencia sí
+  se probaron mediante el código de producción.
+
+Pendiente: usar el botón de exportación en ambos equipos, reconectar con Sender y
+Receiver actuales, medir en Intel y confirmar la conservación/renovación de permisos
+después de actualizar. Esta versión no cambia el formato v2 del transporte.

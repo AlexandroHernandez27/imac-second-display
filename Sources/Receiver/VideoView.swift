@@ -22,6 +22,8 @@ final class VideoView: NSView {
             if format == nil || packet.sps != lastSPS || packet.pps != lastPPS {
                 format = try packet.formatDescription()
                 lastSPS = packet.sps; lastPPS = packet.pps
+                let dimensions = CMVideoFormatDescriptionGetDimensions(format!)
+                Diagnostics.shared.event("video_format_ready", ["width": .count(Int(dimensions.width)), "height": .count(Int(dimensions.height))])
             }
             guard videoLayer.status != .failed else { throw videoLayer.error ?? DisplayError("El receptor no pudo decodificar H.264.") }
             let sample = try packet.sampleBuffer(format: format!)
@@ -30,7 +32,13 @@ final class VideoView: NSView {
     }
     private func enqueue(_ sample: CMSampleBuffer, generation: UUID, deadline: Date, completion: @escaping (Result<Void, Error>) -> Void) {
         guard self.generation == generation else { return }
-        guard Date() < deadline, videoLayer.status != .failed else { completion(.failure(DisplayError("El receptor no está reproduciendo el video a tiempo."))); return }
+        guard videoLayer.status != .failed else {
+            completion(.failure(videoLayer.error ?? DisplayError("El receptor no pudo decodificar H.264."))); return
+        }
+        guard Date() < deadline else {
+            Diagnostics.shared.event("renderer_timeout")
+            completion(.failure(DisplayError("El receptor no está reproduciendo el video a tiempo."))); return
+        }
         if videoLayer.isReadyForMoreMediaData {
             videoLayer.enqueue(sample); hasVideo = true
             completion(.success(()))

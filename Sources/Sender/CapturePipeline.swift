@@ -19,10 +19,12 @@ final class CapturePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
     init(window: Int = 3) { flow = FrameFlow(capacity: window); super.init() }
 
     @MainActor func start(displayID: CGDirectDisplayID, width: Int, height: Int, fps: Int, bitrate: Int) async throws {
+        Diagnostics.shared.event("capture_discovery_started")
         sourceDisplayID = displayID
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { $0.displayID == displayID }),
               CGDisplayIsInMirrorSet(displayID) == 0 else { throw DisplayError("No se encontró la pantalla virtual independiente para capturar.") }
+        Diagnostics.shared.event("capture_display_found")
         try configureEncoder(width: width, height: height, fps: fps, bitrate: bitrate)
         let config = SCStreamConfiguration()
         config.width = width; config.height = height
@@ -35,6 +37,7 @@ final class CapturePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         stream = capture
         try capture.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await capture.startCapture()
+        Diagnostics.shared.event("capture_started")
     }
 
     /// Benchmark del mismo encoder y control de flujo, sin capturar el escritorio.
@@ -46,6 +49,7 @@ final class CapturePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         queue.async { self.offer(Frame(image: image, pts: pts, capturedAt: now)) }
     }
     @MainActor private func configureEncoder(width: Int, height: Int, fps: Int, bitrate: Int, lowLatency: Bool = true, realTime: Bool = true) throws {
+        Diagnostics.shared.event("encoder_configure_started")
         guard encoder == nil else { throw DisplayError("El codificador ya está iniciado.") }
         var specification: [CFString: Any] = [kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: true]
         if lowLatency { specification[kVTVideoEncoderSpecification_EnableLowLatencyRateControl] = true }
@@ -58,6 +62,7 @@ final class CapturePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
                 owner.queue.async {
                     guard !owner.stopped else { return }
                     guard status == noErr, !flags.contains(.frameDropped), let sample else {
+                        Diagnostics.shared.event("encoder_output_failed", ["osstatus": .count(Int(status)), "dropped": .flag(flags.contains(.frameDropped))])
                         owner.fail("El codificador no produjo un fotograma (\(status))."); return
                     }
                     owner.encoded(sample, sequence: sequence)
@@ -78,6 +83,7 @@ final class CapturePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         // RequireHardware impide fallback. La consulta UsingHardware es opcional
         // y no está soportada por el encoder de la primera prueba (-12900).
         statistics = RecentVideoMetrics(now: ProcessInfo.processInfo.systemUptime)
+        Diagnostics.shared.event("encoder_ready", ["hardware_required": .flag(true)])
     }
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard !stopped else { return }
@@ -102,16 +108,23 @@ final class CapturePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         let status = VTCompressionSessionEncodeFrame(encoder, imageBuffer: next.frame.image,
             presentationTimeStamp: next.frame.pts, duration: .invalid, frameProperties: nil,
             sourceFrameRefcon: UnsafeMutableRawPointer(bitPattern: UInt(next.sequence)), infoFlagsOut: nil)
-        if status != noErr { fail("Error de codificación: \(status)") }
+        if status != noErr {
+            Diagnostics.shared.event("encoder_submit_failed", ["osstatus": .count(Int(status))])
+            fail("Error de codificación: \(status)")
+        }
     }
     private func encoded(_ sample: CMSampleBuffer, sequence: UInt32) {
         guard sequence == lastEncoded &+ 1 else { fail("El encoder cambió el orden de los fotogramas."); return }
         lastEncoded = sequence
+        if sequence == 1 { Diagnostics.shared.event("first_frame_encoded") }
         do {
             let payload = try VideoPacket(sample: sample, sequence: sequence).serialized()
             statistics.sent(sequence, bytes: payload.count, at: ProcessInfo.processInfo.systemUptime)
             DispatchQueue.main.async { [weak self] in self?.onFrame?(payload, sequence) }
-        } catch { fail(error.localizedDescription) }
+        } catch {
+            Diagnostics.shared.failure("video_serialization_failed", error: error)
+            fail(error.localizedDescription)
+        }
     }
     func acknowledge(_ sequence: UInt32) {
         queue.async {
@@ -130,9 +143,20 @@ final class CapturePipeline: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
             DispatchQueue.main.async { completion(snapshot) }
         }
     }
-    func stream(_ stream: SCStream, didStopWithError error: Error) { fail("Captura detenida: \(error.localizedDescription)") }
-    private func fail(_ message: String) { DispatchQueue.main.async { [weak self] in self?.onError?(message) } }
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        Diagnostics.shared.failure("capture_stopped_with_error", error: error)
+        fail("Captura detenida: \(error.localizedDescription)")
+    }
+    private func fail(_ message: String) {
+        queue.async {
+            guard !self.stopped else { return }
+            self.stopped = true
+            Diagnostics.shared.event("capture_pipeline_failed")
+            DispatchQueue.main.async { [weak self] in self?.onError?(message) }
+        }
+    }
     @MainActor func stop() async {
+        Diagnostics.shared.event("capture_stop_requested")
         onFrame = nil; onError = nil
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             queue.async { self.stopped = true; self.flow.reset(); continuation.resume() }

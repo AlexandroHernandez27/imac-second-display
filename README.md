@@ -4,8 +4,9 @@ Prototipo nativo para usar una iMac como **pantalla adicional** de una MacBook.
 El escritorio se extiende; las aplicaciones corren en la MacBook. La iMac debe
 permanecer encendida y ejecutar el receptor.
 
-**v0.3.0 experimental:** incorpora actualizaciones con confirmación y conserva las
-mejoras de video de v0.2.0. Pantalla independiente, captura y reproducción cifrada
+**v0.3.1 experimental:** añade registros locales exportables y versión visible en
+el título. Conserva las actualizaciones con confirmación y mejoras de video de
+v0.2.0. Pantalla independiente, captura y reproducción cifrada
 comprobadas con ambas apps ejecutándose en una M5. El usuario reporta imagen en la
 iMac y retraso al mover ventanas/escribir con v0.1.0. Esta versión corrige el flujo
 y permite medirlo mejor; la mejora en la iMac todavía requiere prueba.
@@ -37,8 +38,8 @@ Privacidad y seguridad. No desactives Gatekeeper globalmente. La iMac no necesit
 
 ## Actualizaciones desde la app
 
-Instala v0.3.0 manualmente en ambas Macs una vez. Las versiones anteriores no
-incluyen actualizador. Después:
+Si tienes v0.1.0 o v0.2.0, instala la versión actual manualmente en ambas Macs una
+vez. Desde v0.3.0 se incluye actualizador:
 
 - **Buscar versiones automáticamente:** consulta aproximadamente una vez al día
   mientras la app esté abierta. La casilla permite desactivarlo en cada equipo.
@@ -53,6 +54,16 @@ una ubicación protegida, macOS puede solicitar autorización para reemplazar la
 La firma local puede requerir renovar el permiso de captura; las actualizaciones
 no otorgan permisos de macOS ni notarizan las apps. Cada Mac se actualiza por separado.
 Ver [funcionamiento y publicación de actualizaciones](docs/ACTUALIZACIONES.md).
+
+## Diagnóstico de conexión
+
+Si Sender dice «El receptor usa un protocolo incompatible», comprueba que no siga
+abierta una copia v0.1.0. Cierra las apps con ⌘Q y abre las actuales desde Finder;
+el título debe mostrar **v0.3.1 (4)**. Descargar el ZIP no sustituye un proceso abierto.
+
+Desde v0.3.1, **Exportar diagnóstico…** guarda el registro local de la app.
+Reproduce el fallo y exporta en **ambos equipos**. No incluye claves, IP ni imágenes,
+ni envía datos automáticamente. [Guía de diagnóstico](docs/DIAGNOSTICO.md).
 
 ## Requisitos y alcance
 
@@ -99,6 +110,7 @@ Pruebas desde una sesión gráfica de la MacBook:
 bash scripts/test-display.sh --run
 bash scripts/test-protocol.sh --run
 bash scripts/test-video-performance.sh --run
+bash scripts/test-diagnostics.sh --run
 ```
 
 La primera comprueba la pantalla independiente. La segunda prueba H.264, TLS-PSK,

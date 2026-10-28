@@ -64,11 +64,28 @@ macOS puede volver a pedir autorización de apertura o grabación de pantalla po
 la firma ad hoc. El actualizador no garantiza conservar esos permisos. El proceso
 de desarrollo y firma de nuevas versiones está en [docs/ACTUALIZACIONES.md](docs/ACTUALIZACIONES.md).
 
+## v0.3.1: diagnóstico y copia antigua abierta
+
+Después de descargar v0.3.0 en ambos equipos, el usuario reportó «El otro equipo
+se desconectó» en Receiver y «El receptor usa un protocolo incompatible» en Sender.
+La inspección del proceso activo de Sender confirmó **v0.1.0/build 1**, que rechaza
+el saludo v2. No confundir versión descargada con proceso abierto.
+
+Cierra ambas apps con **⌘Q**, abre las nuevas desde Finder y confirma **v0.3.1 (4)**
+en el título. Si la app abierta ya es v0.3.0, usa **Buscar actualizaciones…**; si es
+v0.1.0/v0.2.0, descarga manualmente la versión nueva. Prepara una sesión con clave nueva.
+
+v0.3.1 agrega logs locales automáticos. Ante un fallo, pulsa **Exportar diagnóstico…**
+en **ambas apps** y conserva los dos archivos. No incluyen claves, IP ni imágenes y
+no se suben automáticamente. Historial acotado a 3 MiB por rol, persistente al cerrar.
+Consulta [diagnóstico, privacidad y lectura de eventos](docs/DIAGNOSTICO.md).
+La conexión real entre ambos equipos con la versión nueva sigue por verificar.
+
 ## Comprobar el retraso con la versión actual
 
-1. Desconecta y cierra Sender y Receiver. Descarga **los dos ZIPs de v0.3.0** desde
-   [la release](https://github.com/AlexandroHernandez27/imac-second-display/releases/tag/v0.3.0).
-   Sustituye las copias anteriores y comprueba `v0.3.0` en las dos interfaces.
+1. Desconecta y cierra Sender y Receiver. Descarga **los dos ZIPs de v0.3.1** desde
+   [la release](https://github.com/AlexandroHernandez27/imac-second-display/releases/tag/v0.3.1).
+   Sustituye las copias anteriores y comprueba `v0.3.1 (4)` en las dos interfaces.
 2. Conecta a **1080p / 30 FPS / 12 Mbps**. Pulsa **Prueba de movimiento** en Sender:
    aparecen texto, un contador y una barra que se mueve en la pantalla virtual.
 3. Espera 5–10 segundos. Anota las dos líneas de métricas mientras se mueve la barra.
@@ -117,7 +134,7 @@ usuario ni capturas de contenido personal:
 
 | Prueba | Dato pendiente |
 | --- | --- |
-| Abrir receptor v0.3.0 en Sequoia 15.8.1 | Resultado/error exacto |
+| Abrir receptor v0.3.1 en Sequoia 15.8.1 | Resultado/error exacto |
 | Emparejamiento y pantalla extendida | Ventanas independientes y texto legible |
 | 1080p/30, 1080p/60, después 1440p | Captura/entrega, preparación, ACK, fluidez |
 | CPU y memoria | Monitor de Actividad en ambas Macs tras 10 minutos |

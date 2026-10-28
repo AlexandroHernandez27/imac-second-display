@@ -7,6 +7,7 @@ import AppKit
     var onUnexpectedExit: (() -> Void)?
 
     func start(width: Int, height: Int, fps: Int) async throws {
+        Diagnostics.shared.event("display_helper_start")
         guard process == nil else { throw DisplayError("Ya existe una pantalla virtual.") }
         let task = Process()
         task.executableURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/DisplayHelper")
@@ -16,7 +17,9 @@ import AppKit
         try task.run()
         process = task; input = stdin
         // availableData se ejecuta fuera del hilo de interfaz y tiene un watchdog.
-        let watchdog = DispatchWorkItem { if task.isRunning { task.terminate() } }
+        let watchdog = DispatchWorkItem {
+            if task.isRunning { Diagnostics.shared.event("display_helper_timeout"); task.terminate() }
+        }
         DispatchQueue.global().asyncAfter(deadline: .now() + 8, execute: watchdog)
         let data: Data = await withCheckedContinuation { continuation in
             DispatchQueue.global().async { continuation.resume(returning: stdout.fileHandleForReading.availableData) }
@@ -24,11 +27,13 @@ import AppKit
         watchdog.cancel()
         guard process === task else { throw CancellationError() }
         guard let value = UInt32(String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""), value != 0 else {
+            Diagnostics.shared.event("display_helper_invalid_response")
             stop()
             throw DisplayError("No se pudo crear la pantalla virtual. La API privada puede haber cambiado.")
         }
         id = value
         task.terminationHandler = { [weak self] _ in
+            Diagnostics.shared.event("display_helper_exit", ["status": .count(Int(task.terminationStatus))])
             DispatchQueue.main.async { if self?.process === task { self?.onUnexpectedExit?() } }
         }
         do {
@@ -49,7 +54,11 @@ import AppKit
             }
             guard CGDisplayIsInMirrorSet(id) == 0, CGDisplayMirrorsDisplay(id) == 0,
                   CGDisplayIsActive(id) != 0, id != CGMainDisplayID() else { throw DisplayError("La pantalla no quedó como escritorio independiente.") }
-        } catch { stop(); throw error }
+            Diagnostics.shared.event("display_ready", ["independent": .flag(true)])
+        } catch {
+            Diagnostics.shared.failure("display_configuration_failed", error: error)
+            stop(); throw error
+        }
     }
     func stop() {
         let task = process

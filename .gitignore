@@ -2,5 +2,7 @@
 dist/
 .DS_Store
 *.log
+iMac-*-diagnostico*.txt
+diagnostic*.jsonl
 __pycache__/
 *.pyc

@@ -1,6 +1,6 @@
 {
-  "version": "0.3.0",
-  "build": 3,
+  "version": "0.3.1",
+  "build": 4,
   "sparkleVersion": "2.10.1",
   "sparkleSHA256": "1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27",
   "updatePublicKey": "eXop+IIm4urHTbO2C4WEX+l48/CSKRpz3E3Xs5QvGSI=",

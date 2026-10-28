@@ -101,3 +101,9 @@ actualización y no se actualiza durante una sesión de pantalla. Leer
 clave privada guardada en el Llavero, cuenta `imac-second-display-updates`.
 Solo la clave pública está en `Config/release.json`. Nunca exportar ni publicar
 la clave privada. No prometer que la firma ad hoc conserva los permisos de macOS.
+
+v0.3.1 agrega diagnósticos locales acotados y exportables. Leer `docs/DIAGNOSTICO.md`.
+El reporte de protocolo incompatible tras descargar v0.3.0 se investigó: el proceso
+activo de Sender todavía era v0.1.0/build 1. No afirmar una regresión de v0.3.0 ni que
+la conexión real en iMac esté resuelta hasta probar las copias correctas. No añadir
+texto libre, IP, claves, payloads o NSError.userInfo a los registros.

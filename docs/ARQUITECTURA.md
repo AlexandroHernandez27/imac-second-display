@@ -88,6 +88,13 @@ al exterior; una IP privada no protege contra un router configurado para reenvia
 
 ## Referencias primarias
 
+Desde v0.3.1, una cola serial de escritura guarda diagnósticos locales en tres
+archivos de 1 MiB por app. Solo admite etiquetas literales, números y banderas;
+las causas de error se reducen a dominios conocidos y códigos, sin descripciones
+ni `userInfo`. El archivo se exporta por elección del usuario y no se transmite.
+La lectura de red conserva el error antes de interpretar EOF, evitando ocultarlo
+tras una desconexión genérica. Ver [diagnóstico](DIAGNOSTICO.md).
+
 La actualización de aplicaciones usa un canal separado de la transmisión: feeds
 y ZIPs en GitHub por HTTPS, con firmas Ed25519 verificadas por Sparkle. No transmite
 video, claves de sesión ni contenido del escritorio a GitHub. La consulta automática

@@ -32,6 +32,7 @@ final class FrameReceiver {
                 self.onAcknowledged?(packet.sequence)
                 self.drain()
             case .failure(let error):
+                Diagnostics.shared.failure("renderer_failed", error: error)
                 self.reset()
                 self.onError?(error.localizedDescription)
             }

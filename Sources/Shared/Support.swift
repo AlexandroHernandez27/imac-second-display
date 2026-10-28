@@ -2,6 +2,7 @@ import AppKit
 import Network
 
 var appVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "desarrollo" }
+var appBuild: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "desarrollo" }
 
 struct DisplayError: LocalizedError {
     let message: String
@@ -9,7 +10,10 @@ struct DisplayError: LocalizedError {
     var errorDescription: String? { message }
 }
 func requireSuccess(_ status: OSStatus, _ operation: String) throws {
-    if status != noErr { throw DisplayError("\(operation): error \(status)") }
+    if status != noErr {
+        Diagnostics.shared.event("system_operation_failed", ["osstatus": .count(Int(status))])
+        throw DisplayError("\(operation): error \(status)")
+    }
 }
 func isLocalIPv4(_ address: String) -> Bool {
     let parts = address.split(separator: ".").compactMap { UInt8($0) }

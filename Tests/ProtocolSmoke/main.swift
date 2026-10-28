@@ -139,6 +139,11 @@ func testNetwork(payload: Data, wrongKey: Bool) throws {
     } else {
         try check(waitFor(10) { acknowledged == 3 || failure != nil || closed } && received == 3 && acknowledged == 3, failure ?? "Falló TLS/entrega/ACK")
         print("PASS: TLS-PSK local → tres muestras H.264 íntegras en tránsito → ACKs en orden.")
+        var remoteClosed = false
+        peer.onClose = { _ in remoteClosed = true }
+        server?.onClose = nil; server?.close()
+        try check(waitFor(5) { remoteClosed }, "El receptor no detectó el cierre remoto")
+        print("PASS: cierre remoto detectado y registrado sin ocultar errores de red.")
     }
 }
 
@@ -213,6 +218,13 @@ func testReceiverQueue(payload: Data) throws {
 }
 
 do {
+    let diagnostics = URL(fileURLWithPath: ".build/protocol-diagnostics-\(UUID().uuidString)", isDirectory: true)
+    Diagnostics.shared.configure(role: "ProtocolTest", directory: diagnostics)
+    defer { try? FileManager.default.removeItem(at: diagnostics) }
+    try check(Wire.frameWindow(forHello: Wire.hello) == 3 && Wire.frameWindow(forHello: Wire.helloV1) == 1,
+        "El emisor no acepta los protocolos soportados")
+    try check(Wire.frameWindow(forHello: Data([1, 73, 83, 68, 99])) == nil && Wire.frameWindow(forHello: Data()) == nil,
+        "Se aceptó un protocolo desconocido")
     try check(isLocalIPv4("192.168.1.2") && isLocalIPv4("10.0.0.2") && !isLocalIPv4("8.8.8.8") && !isLocalIPv4("192.168.1.999"), "Filtro LAN inválido")
     try check(rejects { _ = try Pairing.parameters(code: "123456") }, "Aceptó una clave débil")
     let payload = try testCodec()
@@ -220,6 +232,10 @@ do {
     try testReceiverQueue(payload: payload)
     try testNetwork(payload: payload, wrongKey: false)
     try testNetwork(payload: payload, wrongKey: true)
+    let log = String(decoding: try Diagnostics.shared.report(), as: UTF8.self)
+    try check(log.contains("tls_ready") && log.contains("transport_close") && log.contains("transport_header_incomplete"),
+        "Faltan etapas de conexión y cierre en el registro")
+    try check(log.contains("\"domain\":\"tls\"") && !log.contains("127.0.0.1"), "Falta error TLS o se registró una dirección")
     print("PASS: pruebas de protocolo completas. No se capturó el escritorio.")
     exit(0)
 } catch { print("FAIL: \(error.localizedDescription)"); exit(1) }
