@@ -1,8 +1,26 @@
+import CryptoKit
 import Foundation
 import Network
 import Security
 
 enum Pairing {
+    /// Clave fija y pública para el cable USB, a petición del usuario: por cable no
+    /// se comparte clave. No aporta secreto; la protección es que el emisor solo
+    /// escucha en el cable USB (enlace punto a punto entre las dos Macs) y que la
+    /// MacBook pide aceptación explícita antes de transmitir. Nunca se usa en Wi‑Fi.
+    static let cableCode = Data(SHA256.hash(data: Data("imac-second-display · cable USB · v1".utf8))).base64EncodedString()
+
+    /// Cuatro caracteres derivados de la clave para comprobar a simple vista que
+    /// ambas Macs tienen la misma. No permite reconstruirla.
+    static func fingerprint(code: String) -> String? {
+        guard let key = Data(base64Encoded: code.trimmingCharacters(in: .whitespacesAndNewlines)), key.count == 32 else { return nil }
+        return SHA256.hash(data: key).prefix(2).map { String(format: "%02X", $0) }.joined()
+    }
+    /// Códigos de Secure Transport que indican claves distintas en TLS-PSK.
+    static func isKeyMismatch(_ error: NWError) -> Bool {
+        guard case .tls(let status) = error else { return false }
+        return [-9846, -9845, -9820, -9821, -9834].contains(Int(status))
+    }
     static func generate() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
         try requireSuccess(SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes), "Generar clave")
@@ -41,13 +59,15 @@ enum Pairing {
 // con un receptor v2/v3; un receptor v1 conserva la ventana de uno.
 final class PacketChannel {
     static let maximumPacket = 8 * 1024 * 1024
+    static let keyMismatchMessage = "La clave no coincide con la de la MacBook. Cada «Preparar conexión» crea una clave nueva: copia la actual y comprueba que la huella sea igual en ambas Macs."
     let connection: NWConnection
     var onReady: (() -> Void)?
     var onPacket: ((Data) -> Void)?
     var onClose: ((String) -> Void)?
     private var closed = false
     private var timeout: DispatchWorkItem?
-    private var ready = false
+    /// TLS completado: el otro extremo tiene la misma clave.
+    private(set) var ready = false
     private var sentPackets = 0, receivedPackets = 0
 
     init(_ connection: NWConnection) { self.connection = connection }
@@ -59,7 +79,10 @@ final class PacketChannel {
             switch state {
             case .setup: Diagnostics.shared.event("transport_setup")
             case .preparing: Diagnostics.shared.event("transport_preparing")
-            case .waiting(let error): Diagnostics.shared.failure("transport_waiting", error: error)
+            case .waiting(let error):
+                Diagnostics.shared.failure("transport_waiting", error: error)
+                // Con otra clave, Network.framework reintentaría en vano hasta el timeout.
+                if Pairing.isKeyMismatch(error) { self.close(Self.keyMismatchMessage, cause: "key_mismatch") }
             case .ready:
                 self.ready = true
                 Diagnostics.shared.event("tls_ready")
@@ -68,7 +91,11 @@ final class PacketChannel {
                 self.onReady?()
             case .failed(let error):
                 Diagnostics.shared.failure("transport_failed", error: error)
-                self.close("No se pudo conectar: \(error.localizedDescription). Revisa IP y clave.", cause: "network_failed")
+                if Pairing.isKeyMismatch(error) {
+                    self.close(Self.keyMismatchMessage, cause: "key_mismatch")
+                } else {
+                    self.close("No se pudo conectar: \(error.localizedDescription). Revisa IP y clave.", cause: "network_failed")
+                }
             case .cancelled: self.close("Conexión cerrada.", cause: "network_cancelled")
             default: break
             }

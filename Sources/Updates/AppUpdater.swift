@@ -43,9 +43,9 @@ import Sparkle
     }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { controller.updater.canCheckForUpdates }
 
-    func mayConnect() -> Bool {
+    func mayConnect(silently: Bool = false) -> Bool {
         guard !controller.updater.sessionInProgress, !installing, postponedInstall == nil else {
-            explain("Termina o pospón la actualización antes de conectar la pantalla.")
+            if !silently { explain("Termina o pospón la actualización antes de conectar la pantalla.") }
             return false
         }
         return true

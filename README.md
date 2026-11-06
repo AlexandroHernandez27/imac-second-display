@@ -25,15 +25,17 @@ externos ni abrir puertos del router. La búsqueda opcional de actualizaciones c
 ## Descargar y probar
 
 Descarga las apps en [Releases](https://github.com/AlexandroHernandez27/imac-second-display/releases).
-Actualiza **ambas aplicaciones**, cerrando primero las copias anteriores: el receptor
-v0.4.0 necesita el emisor v0.4.0.
+Actualiza **ambas aplicaciones**, cerrando primero las copias anteriores: la conexión
+sin clave por cable necesita v0.4.1 en las dos. Con la firma local, macOS pide de nuevo
+el permiso de grabación de pantalla de iMac Sender tras cada actualización.
 
 1. Conecta un cable USB‑A (parte trasera de la iMac) → USB‑C (MacBook). Debe ser de datos.
 2. En la **MacBook**, abre `iMac Sender.app`. El selector muestra «Cable USB» y aplica
    2560 × 1440, 60 FPS y 40 Mbps. Sin cable puedes elegir Wi‑Fi.
-3. Pulsa **Preparar conexión** y copia la clave temporal.
-4. En la **iMac**, abre `iMac Receiver.app`: aparece «MacBook · Cable USB». Pega la clave
-   completa y pulsa **Conectar**. Si no aparece, usa la IP que muestra el emisor.
+3. En la **iMac**, abre `iMac Receiver.app` y déjalo abierto.
+4. En la MacBook pulsa **Preparar conexión**. **Por cable no hay clave**: la iMac se
+   conecta sola. Por Wi‑Fi, copia la clave y pégala en la iMac; la huella de 4
+   caracteres debe coincidir en ambas.
 5. Acepta la solicitud en la MacBook. Concede el permiso de grabación de pantalla y,
    si macOS lo pide en cualquiera de las dos Macs, el de red local.
 6. La iMac entra en pantalla completa. Pulsa **Prueba de movimiento** en el emisor y
@@ -70,7 +72,7 @@ Ver [funcionamiento y publicación de actualizaciones](docs/ACTUALIZACIONES.md).
 
 Si Sender dice «Protocolo incompatible» o Receiver indica que la MacBook cerró al
 recibir el saludo, alguna app sigue en una versión anterior. Cierra ambas con ⌘Q y
-abre las actuales desde Finder; el título debe mostrar **v0.4.0 (5)** en las dos.
+abre las actuales desde Finder; el título debe mostrar **v0.4.1 (6)** en las dos.
 Descargar el ZIP no sustituye un proceso abierto.
 
 Desde v0.3.1, **Exportar diagnóstico…** guarda el registro local de la app.
@@ -101,6 +103,8 @@ Limitaciones:
   con la iMac en Sequoia 15.8.1; puede cambiar en otras versiones.
 - El cable conecta las dos Macs como una LAN: los servicios activados en cada Mac para
   todas las interfaces quedan alcanzables desde la otra.
+- Por cable no se usa clave secreta (decisión del usuario): protegen el enlace punto a
+  punto, la escucha solo en el cable y tu aceptación en la MacBook. Wi‑Fi sigue con clave.
 - La iMac no carga la MacBook de forma útil por ese cable (5 V / 500 mA).
 - TCP con hasta tres fotogramas pendientes. En Wi‑Fi las pérdidas aún pueden añadir
   esperas por retransmisión; el cable evita la radio.
@@ -139,6 +143,12 @@ uno/tres fotogramas, mide el decoder de producción a 1440p/60 y la nitidez del 
 quieto con y sin refinamiento. La cuarta usa la interfaz real del cable: Bonjour
 limitado a esa interfaz, TLS por Bonjour/IPv4/IPv6, saludo v3, ACK y reporte.
 No sustituyen la prueba entre equipos ni miden el panel.
+
+## Cambios de v0.4.1
+
+- Por cable USB no hace falta clave: la iMac se conecta sola y aceptas en la MacBook.
+- En Wi‑Fi, huella de la clave en ambas Macs y mensaje claro si no coincide.
+- El emisor sigue esperando tras un intento con clave equivocada.
 
 ## Cambios de v0.4.0
 

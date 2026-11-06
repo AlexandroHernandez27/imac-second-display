@@ -215,3 +215,38 @@ Pendiente: escritorio real por el cable hasta la iMac, FPS mostrados y decodific
 hardware/software en la iMac, latencia percibida al escribir y mover ventanas, CPU,
 sesión de 30 minutos, desconectar el cable durante la sesión, reposo y otro puerto.
 No se afirma todavía que la pantalla sea fluida en la iMac.
+
+## 2026-11-06 · v0.4.0 en la iMac por cable · primer intento real
+
+Registro de Sender en la MacBook (Receiver no exportado):
+
+- Primer intento por cable: TLS-PSK listo, saludo v3, aceptación del usuario, pantalla
+  virtual 2560 × 1440 independiente. Falló en `capture_permission_result granted: false`:
+  la build v0.4.0 (firma ad hoc nueva) no tenía permiso de grabación de pantalla.
+- Tres intentos siguientes: `transport_failed` TLS **-9846 (bad MAC)** en el emisor y
+  «bad MAC» en la iMac. La iMac usaba la clave de una sesión anterior; cada intento
+  cerraba la espera del emisor y el siguiente «Preparar conexión» generaba otra clave.
+- El enlace USB se desconectó y volvió a conectar una vez durante la prueba.
+
+No se llegó a ver escritorio en la iMac. Primer dato real: el transporte por cable,
+TLS y el saludo v3 funcionan entre ambos equipos.
+
+## 2026-11-06 · v0.4.1 · Cable sin clave
+
+Decisión del usuario: por cable USB no compartir clave. Ver [CABLE_USB](CABLE_USB.md).
+
+- Experimento en la M5 con clave equivocada: el servidor falla con -9846 al instante;
+  el cliente queda en `waiting(-9820)` por IP, y en `preparing` indefinido contra el
+  servicio Bonjour. Corregido: ambos códigos cierran con «La clave no coincide» y el
+  receptor resuelve el servicio por UDP antes de conectar (resolución en ~10 ms).
+- `test-link.sh --run --require-usb`: PASS. Añade clave fija válida, huella, detección
+  de clave distinta, clave equivocada → mensaje claro → conexión correcta después, y
+  modo sin clave: anuncio `auth=usb` con identificador de espera → TLS con clave fija →
+  video, ACKs y reporte. Ambos extremos en la MacBook.
+- Protocolo, diagnóstico y video: PASS (1440p/60 decodificado a 60 FPS en la M5;
+  texto quieto 37.43 → 40.40 dB).
+- Receiver v0.4.1 x86_64 bajo Rosetta: abre e inicia la búsqueda.
+
+Sin probar en la iMac: conexión automática por cable, rechazo de procesos locales y
+escritorio real. La detección del cable en el lado iMac (`IOUSBHostDevice` Apple «Mac»)
+se corrigió sin poder verificarla en ese equipo.

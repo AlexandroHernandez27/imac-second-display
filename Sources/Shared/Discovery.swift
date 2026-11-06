@@ -10,19 +10,24 @@ enum Discovery {
 
 /// Anuncia el emisor solo en la interfaz elegida mientras espera al receptor.
 /// NWListener anunciaría en todas las interfaces, incluida Wi‑Fi aunque se haya
-/// elegido el cable. El registro TXT contiene solo versión y tipo de enlace.
+/// elegido el cable. TXT: versión, tipo de enlace, si el cable no requiere clave
+/// y un identificador aleatorio de la espera, para conectar solo una vez por sesión.
 final class BonjourAdvertiser {
     private var reference: DNSServiceRef?
     var onUpdate: ((DNSServiceErrorType) -> Void)?
 
     @discardableResult
-    func start(interfaceIndex: UInt32, link: LinkKind, port: UInt16 = Discovery.port) -> DNSServiceErrorType {
+    func start(interfaceIndex: UInt32, link: LinkKind, port: UInt16 = Discovery.port,
+               keyless: Bool = false, session: String = "") -> DNSServiceErrorType {
         stop()
         guard interfaceIndex != 0 else { return DNSServiceErrorType(kDNSServiceErr_BadParam) }
         var record = TXTRecordRef()
         TXTRecordCreate(&record, 0, nil)
         defer { TXTRecordDeallocate(&record) }
-        for (key, value) in [("p", "3"), ("link", link.tag)] {
+        var entries = [("p", "3"), ("link", link.tag)]
+        if keyless { entries.append(("auth", "usb")) }
+        if !session.isEmpty { entries.append(("s", session)) }
+        for (key, value) in entries {
             _ = value.withCString { TXTRecordSetValue(&record, key, UInt8(strlen($0)), $0) }
         }
         var created: DNSServiceRef?
@@ -52,7 +57,12 @@ final class BonjourAdvertiser {
         let endpoint: NWEndpoint
         let interface: NWInterface?
         let link: LinkKind
-        var title: String { "MacBook · \(link.title)" }
+        /// El emisor acepta la clave fija del cable. Solo se usa si la interfaz
+        /// local donde apareció no es Wi‑Fi.
+        let keyless: Bool
+        let session: String
+        var usesCablePairing: Bool { keyless && link == .usbCable && interface.map { $0.type != .wifi } == true }
+        var title: String { "MacBook · \(link.title)" + (usesCablePairing ? " (sin clave)" : "") }
     }
     private(set) var found: [Found] = []
     var onChange: (() -> Void)?
@@ -85,16 +95,56 @@ final class BonjourAdvertiser {
     private func update(_ results: Set<NWBrowser.Result>) {
         var list = [Found]()
         for result in results {
-            var link = LinkKind.other
-            if case .bonjour(let record) = result.metadata, let tag = record["link"] { link = LinkKind(tag: tag) }
+            var link = LinkKind.other, keyless = false, session = ""
+            if case .bonjour(let record) = result.metadata {
+                if let tag = record["link"] { link = LinkKind(tag: tag) }
+                keyless = record["auth"] == "usb"
+                session = String((record["s"] ?? "").prefix(32))
+            }
             let interface = result.interfaces.first { $0.type != .loopback } ?? result.interfaces.first
-            list.append(Found(endpoint: result.endpoint, interface: interface, link: link))
+            list.append(Found(endpoint: result.endpoint, interface: interface, link: link, keyless: keyless, session: session))
         }
         list.sort { ($0.link, $0.title) < ($1.link, $1.title) }
         guard list != found else { return }
         found = list
         Diagnostics.shared.event("discovery_results", ["count": .count(list.count),
-            "usb_cable": .flag(list.contains { $0.link == .usbCable })])
+            "usb_cable": .flag(list.contains { $0.link == .usbCable }),
+            "cable_pairing": .flag(list.contains { $0.usesCablePairing })])
         onChange?()
     }
 }
+
+/// Resuelve un servicio Bonjour a una dirección concreta con una conexión UDP que
+/// no envía datos al emisor. Conectar TLS a esa dirección hace que una clave
+/// distinta falle al instante; contra el servicio, Network.framework queda en
+/// «preparing» mientras le quedan direcciones por probar.
+@MainActor enum ServiceResolver {
+    static func resolve(_ endpoint: NWEndpoint, interface: NWInterface?, timeout: Double = 3,
+                        completion: @escaping @MainActor (NWEndpoint?) -> Void) {
+        let parameters = NWParameters.udp
+        if let interface { parameters.requiredInterface = interface }
+        let connection = NWConnection(to: endpoint, using: parameters)
+        var finished = false
+        func finish(_ result: NWEndpoint?) {
+            guard !finished else { return }
+            finished = true
+            connection.stateUpdateHandler = nil
+            connection.cancel()
+            completion(result)
+        }
+        connection.stateUpdateHandler = { state in
+            MainActor.assumeIsolated {
+                switch state {
+                case .ready:
+                    if case .hostPort = connection.currentPath?.remoteEndpoint { finish(connection.currentPath?.remoteEndpoint) }
+                    else { finish(nil) }
+                case .failed, .cancelled: finish(nil)
+                default: break
+                }
+            }
+        }
+        connection.start(queue: .main)
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { MainActor.assumeIsolated { finish(nil) } }
+    }
+}
+

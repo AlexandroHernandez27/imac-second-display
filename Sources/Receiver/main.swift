@@ -12,6 +12,10 @@ import Network
     private let host = NSTextField(string: "")
     private let code = NSSecureTextField(string: "")
     private let autoFullScreen = NSButton(checkboxWithTitle: "Pantalla completa al recibir la imagen", target: nil, action: nil)
+    private let autoConnect = NSButton(checkboxWithTitle: "Conectar sola por cable USB, sin clave", target: nil, action: nil)
+    private let fingerprint = label("", size: 12)
+    /// Esperas del emisor ya intentadas automáticamente: una sola vez por «Preparar conexión».
+    private var attemptedWaits = Set<String>()
     private let status = label("Pega la clave que muestra la MacBook. Con el cable USB conectado, la MacBook aparece sola.")
     private let metrics = label("", size: 12)
     private let video = VideoView(frame: .zero)
@@ -24,6 +28,7 @@ import Network
     private var authorized = false, receivedFirstFrame = false
     private var userChoseManual = false, hideAfterFullScreen = false
     private var helloSentAt: Double?
+    private var resolving = false
     private static let manualTag = "manual"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -52,6 +57,9 @@ import Network
         host.placeholderString = "Solo si no aparece arriba. Ejemplo: 169.254.10.20 o 192.168.1.10"
         code.placeholderString = "Pega la clave temporal completa"
         autoFullScreen.state = .on
+        autoConnect.state = .on
+        autoConnect.target = self; autoConnect.action = #selector(autoConnectChanged)
+        NotificationCenter.default.addObserver(self, selector: #selector(codeChanged), name: NSControl.textDidChangeNotification, object: code)
         connectButton = button("Conectar", target: self, action: #selector(connect))
         let actions = NSStackView(views: [connectButton,
             button("Desconectar", target: self, action: #selector(disconnect)),
@@ -59,7 +67,8 @@ import Network
         let stack = NSStackView(views: [label("La pantalla de tu MacBook", size: 25, bold: true),
             label("MacBook", bold: true), senders,
             label("IP manual · puerto 7777", bold: true), host,
-            label("Clave de emparejamiento", bold: true), code, actions, autoFullScreen, status, metrics,
+            label("Clave de emparejamiento · solo por Wi‑Fi o IP manual", bold: true), code, fingerprint, actions,
+            autoConnect, autoFullScreen, status, metrics,
             updates.controls,
             diagnostics.makeButton(),
             label("v\(appVersion) · las actualizaciones requieren tu confirmación. Usa el teclado y mouse de la MacBook. Sin audio. Esc sale de pantalla completa.", size: 12)])
@@ -123,14 +132,40 @@ import Network
         } else {
             senders.selectItem(at: 0)
         }
-        updateHostField()
+        updateFields()
+        autoConnectIfPossible()
     }
     @objc private func senderChosen() {
         userChoseManual = (senders.selectedItem?.representedObject as? String) == Self.manualTag
-        updateHostField()
+        updateFields()
     }
-    private func updateHostField() {
-        host.isEnabled = channel == nil && selectedSender == nil
+    @objc private func codeChanged() { updateFields() }
+    @objc private func autoConnectChanged() { autoConnectIfPossible() }
+    private func updateFields() {
+        let idle = channel == nil && !resolving
+        let cable = selectedSender?.usesCablePairing == true
+        host.isEnabled = idle && selectedSender == nil
+        code.isEnabled = idle && !cable
+        code.placeholderString = cable ? "No hace falta clave por cable USB" : "Pega la clave temporal completa"
+        if cable {
+            fingerprint.stringValue = "Por cable USB no hace falta clave. Acepta la solicitud en la MacBook."
+        } else if let value = Pairing.fingerprint(code: code.stringValue) {
+            fingerprint.stringValue = "Huella de la clave: \(value) · debe coincidir con la de la MacBook."
+        } else {
+            fingerprint.stringValue = code.stringValue.isEmpty ? "" : "Clave incompleta: cópiala entera desde la MacBook."
+        }
+    }
+    /// Por cable, la iMac se conecta sola una vez por cada espera del emisor.
+    private func autoConnectIfPossible() {
+        guard autoConnect.state == .on, channel == nil, !resolving, !userChoseManual,
+              let found = browser.found.first(where: { $0.usesCablePairing }), !found.session.isEmpty,
+              !attemptedWaits.contains(found.session), updates.mayConnect(silently: true) else { return }
+        attemptedWaits.insert(found.session)
+        if let index = senders.itemArray.firstIndex(where: { ($0.representedObject as? String) == key(found) }) {
+            senders.selectItem(at: index)
+        }
+        Diagnostics.shared.event("auto_connect_cable")
+        startConnection()
     }
     private var selectedSender: SenderBrowser.Found? {
         guard let tag = senders.selectedItem?.representedObject as? String, tag != Self.manualTag else { return nil }
@@ -141,17 +176,29 @@ import Network
 
     @objc private func connect() {
         guard updates.mayConnect() else { return }
-        guard channel == nil else { return }
+        startConnection()
+    }
+    private func startConnection() {
+        guard channel == nil, !resolving else { return }
         Diagnostics.shared.beginSession()
         Diagnostics.shared.event("connect_requested")
         do {
-            let parameters = try Pairing.parameters(code: code.stringValue)
-            let connection: NWConnection
             if let found = selectedSender {
+                // Clave fija del cable solo si el emisor la anuncia y no llegó por Wi‑Fi.
+                let cable = found.usesCablePairing
+                let parameters = try Pairing.parameters(code: cable ? Pairing.cableCode : code.stringValue)
                 if let interface = found.interface { parameters.requiredInterface = interface }
-                connection = NWConnection(to: found.endpoint, using: parameters)
-                Diagnostics.shared.event("connect_discovered", ["link": .tag(found.link.diagnosticTag),
+                Diagnostics.shared.event("connect_discovered", ["link": .tag(found.link.diagnosticTag), "keyless": .flag(cable),
                     "local_kind": .tag(found.interface.map { LinkInventory.kind(ofInterfaceNamed: $0.name).diagnosticTag } ?? "other")])
+                resolving = true
+                setConnecting(true)
+                status.stringValue = cable ? "Conectando por cable USB…" : "Conectando…"
+                ServiceResolver.resolve(found.endpoint, interface: found.interface) { [weak self] resolved in
+                    guard let self, self.resolving else { return }
+                    self.resolving = false
+                    Diagnostics.shared.event("service_resolved", ["resolved": .flag(resolved != nil)])
+                    self.open(NWConnection(to: resolved ?? found.endpoint, using: parameters), cable: cable)
+                }
             } else {
                 let ip = host.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard isLocalIPv4(ip) else {
@@ -159,29 +206,41 @@ import Network
                         ? "No se encontró la MacBook. Pulsa Preparar conexión en el emisor o escribe su IP local."
                         : "Introduce una dirección IPv4 de tu red local o elige la MacBook de la lista.")
                 }
-                connection = NWConnection(host: NWEndpoint.Host(ip), port: NWEndpoint.Port(rawValue: Discovery.port)!, using: parameters)
-                Diagnostics.shared.event("connect_manual")
+                // IP link-local del cable (169.254.x.x) con la clave vacía: modo cable.
+                let typed = code.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                let cable = typed.isEmpty && ip.hasPrefix("169.254.")
+                let parameters = try Pairing.parameters(code: cable ? Pairing.cableCode : typed)
+                Diagnostics.shared.event("connect_manual", ["keyless": .flag(cable)])
+                open(NWConnection(host: NWEndpoint.Host(ip), port: NWEndpoint.Port(rawValue: Discovery.port)!, using: parameters), cable: cable)
             }
-            let peer = PacketChannel(connection)
-            channel = peer; authorized = false; receivedFirstFrame = false; hideAfterFullScreen = false
-            receivedFrames = 0; acknowledgedFrames = 0; lastDiagnosticMetrics = 0
-            playback.reset(); video.reset()
-            statistics = DecodeStatistics(now: ProcessInfo.processInfo.systemUptime)
-            connectButton.isEnabled = false; host.isEnabled = false; code.isEnabled = false; senders.isEnabled = false
-            peer.onReady = { [weak self, weak peer] in
-                self?.status.stringValue = "Conexión cifrada establecida. Acepta la solicitud en la MacBook."
-                Diagnostics.shared.event("hello_sent", ["protocol": .count(3)])
-                self?.helloSentAt = ProcessInfo.processInfo.systemUptime
-                peer?.send(Wire.hello)
-            }
-            peer.onPacket = { [weak self] data in self?.receive(data) }
-            peer.onClose = { [weak self] reason in self?.finish(reason) }
-            status.stringValue = "Conectando…"
-            peer.start()
         } catch {
             Diagnostics.shared.failure("connect_failed", error: error)
             status.stringValue = error.localizedDescription
         }
+    }
+    private func setConnecting(_ connecting: Bool) {
+        connectButton.isEnabled = !connecting; senders.isEnabled = !connecting
+        if connecting { host.isEnabled = false; code.isEnabled = false } else { updateFields() }
+    }
+    private func open(_ connection: NWConnection, cable: Bool) {
+        let peer = PacketChannel(connection)
+        channel = peer; authorized = false; receivedFirstFrame = false; hideAfterFullScreen = false
+        receivedFrames = 0; acknowledgedFrames = 0; lastDiagnosticMetrics = 0
+        playback.reset(); video.reset()
+        statistics = DecodeStatistics(now: ProcessInfo.processInfo.systemUptime)
+        setConnecting(true)
+        peer.onReady = { [weak self, weak peer] in
+            self?.status.stringValue = cable
+                ? "Conectada por cable USB. Acepta la solicitud en la MacBook."
+                : "Conexión cifrada establecida. Acepta la solicitud en la MacBook."
+            Diagnostics.shared.event("hello_sent", ["protocol": .count(3)])
+            self?.helloSentAt = ProcessInfo.processInfo.systemUptime
+            peer?.send(Wire.hello)
+        }
+        peer.onPacket = { [weak self] data in self?.receive(data) }
+        peer.onClose = { [weak self] reason in self?.finish(reason) }
+        status.stringValue = cable ? "Conectando por cable USB…" : "Conectando…"
+        peer.start()
     }
     private func receive(_ data: Data) {
         guard let channel else { return }
@@ -261,8 +320,7 @@ import Network
             ? "La MacBook cerró la conexión al recibir el saludo. Si usa una versión anterior a v0.4, actualiza iMac Sender."
             : message
         metrics.stringValue = ""
-        connectButton.isEnabled = true; code.isEnabled = true; senders.isEnabled = true
-        updateHostField()
+        setConnecting(false)
         controls.makeKeyAndOrderFront(nil)
         updates.sessionEnded()
     }

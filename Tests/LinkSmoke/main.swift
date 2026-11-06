@@ -54,10 +54,10 @@ func waitFor(_ seconds: Double, _ condition: () -> Bool) -> Bool {
     private var channels = [PacketChannel]()
     private(set) var ready = 0
 
-    init(secret: String, hosts: [String], payloads: [Data]) throws {
+    init(secret: String, hosts: [String], payloads: [Data], port: UInt16 = testPort) throws {
         for host in hosts {
             let parameters = try Pairing.parameters(code: secret)
-            parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: testPort)!)
+            parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!)
             let listener = try NWListener(using: parameters)
             listener.stateUpdateHandler = { [weak self] state in
                 MainActor.assumeIsolated {
@@ -97,6 +97,16 @@ func waitFor(_ seconds: Double, _ condition: () -> Bool) -> Bool {
 }
 
 /// Lado receptor, como Receiver: saludo v3, decoder de producción, ACK al decodificar.
+/// Intento con una clave equivocada: debe fallar con el mensaje de clave distinta.
+@MainActor func wrongKeyMessage(over connection: NWConnection) -> String? {
+    var message: String?
+    let channel = PacketChannel(connection)
+    channel.onClose = { message = $0 }
+    channel.start()
+    _ = waitFor(10) { message != nil }
+    return message
+}
+
 @MainActor func receive(over connection: NWConnection, sender: TestSender, frames: Int) throws {
     let decoder = VideoDecoder()
     defer { decoder.invalidate() }
@@ -135,7 +145,7 @@ func waitFor(_ seconds: Double, _ condition: () -> Bool) -> Bool {
 @MainActor func run() throws {
     let diagnostics = URL(fileURLWithPath: ".build/link-diagnostics-\(UUID().uuidString)", isDirectory: true)
     Diagnostics.shared.configure(role: "LinkTest", directory: diagnostics)
-    defer { try? FileManager.default.removeItem(at: diagnostics) }
+    defer { if !CommandLine.arguments.contains("--keep-log") { try? FileManager.default.removeItem(at: diagnostics) } }
 
     let sample = ReceiverReport(shownFPS: 59.94, decodeMS: 12.34, hardware: false, compressedFallback: false)
     try check(ReceiverReport(data: sample.serialized()) == ReceiverReport(shownFPS: 59.9, decodeMS: 12.3, hardware: false, compressedFallback: false),
@@ -149,6 +159,13 @@ func waitFor(_ seconds: Double, _ condition: () -> Bool) -> Bool {
               && LinkInventory.deviceSpeed("Unknown") == nil && LinkInventory.hostSpeed(3) == 480 && LinkInventory.hostSpeed(4) == 5000,
               "Lectura de velocidad USB incorrecta")
     print("PASS: reporte del receptor, saludos v1/v2/v3 y velocidades USB.")
+    try check(Data(base64Encoded: Pairing.cableCode)?.count == 32 && (try? Pairing.parameters(code: Pairing.cableCode)) != nil,
+              "La clave fija del cable no es válida")
+    let someKey = try Pairing.generate()
+    try check(Pairing.fingerprint(code: someKey)?.count == 4 && Pairing.fingerprint(code: someKey) == Pairing.fingerprint(code: " \(someKey)\n")
+              && Pairing.fingerprint(code: "corta") == nil, "Huella de la clave incorrecta")
+    try check(Pairing.isKeyMismatch(.tls(-9846)) && !Pairing.isKeyMismatch(.posix(.ECONNREFUSED)), "No reconoce una clave distinta")
+    print("PASS: clave fija del cable, huella y detección de clave distinta.")
 
     let links = LinkInventory.current()
     for link in links {
@@ -196,6 +213,44 @@ func waitFor(_ seconds: Double, _ condition: () -> Bool) -> Bool {
                                        using: try Pairing.parameters(code: secret)), sender: sender, frames: payloads.count)
         print("PASS: conexión directa por \(host.contains(":") ? "IPv6 link-local" : "IPv4") con el mismo protocolo.")
     }
+    // 3) Clave equivocada: mensaje claro y el emisor sigue disponible.
+    sender.reset()
+    var resolved: NWEndpoint?, resolvedDone = false
+    ServiceResolver.resolve(found.endpoint, interface: found.interface) { resolved = $0; resolvedDone = true }
+    try check(waitFor(5) { resolvedDone } && resolved != nil, "No se resolvió el servicio Bonjour a una dirección")
+    let wrong = wrongKeyMessage(over: NWConnection(to: resolved!, using: try {
+        let parameters = try Pairing.parameters(code: try Pairing.generate())
+        if let interface = found.interface { parameters.requiredInterface = interface }
+        return parameters
+    }()))
+    try check(wrong?.contains("La clave no coincide") == true, "Una clave distinta no produjo el mensaje claro")
+    try receive(over: NWConnection(to: found.endpoint, using: parameters), sender: sender, frames: payloads.count)
+    print("PASS: clave equivocada → «La clave no coincide»; con la clave correcta se conecta después.")
+    sender.stop(); advertiser.stop(); browser.stop()
+
+    // 4) Por cable sin clave: anuncio auth=usb con identificador de espera y clave fija.
+    if link.kind == .usbCable {
+        let cablePort = testPort + 1
+        let cableSender = try TestSender(secret: Pairing.cableCode, hosts: link.bindHosts, payloads: payloads, port: cablePort)
+        defer { cableSender.stop() }
+        try check(waitFor(5) { cableSender.ready == link.bindHosts.count }, "Listeners del cable sin iniciar")
+        let cableAdvertiser = BonjourAdvertiser()
+        try check(cableAdvertiser.start(interfaceIndex: link.interfaceIndex, link: .usbCable, port: cablePort, keyless: true, session: "a1b2c3d4") == 0,
+                  "No se pudo anunciar el modo sin clave")
+        defer { cableAdvertiser.stop() }
+        let cableBrowser = SenderBrowser()
+        cableBrowser.start()
+        defer { cableBrowser.stop() }
+        try check(waitFor(8) { cableBrowser.found.contains { $0.interface?.name == link.name && $0.usesCablePairing } },
+                  "El receptor no reconoce el modo sin clave por cable")
+        let cableFound = cableBrowser.found.first { $0.interface?.name == link.name && $0.usesCablePairing }!
+        try check(cableFound.session == "a1b2c3d4" && cableFound.title.contains("sin clave"), "Identificador de espera o título incorrectos")
+        let cableParameters = try Pairing.parameters(code: Pairing.cableCode)
+        if let interface = cableFound.interface { cableParameters.requiredInterface = interface }
+        try receive(over: NWConnection(to: cableFound.endpoint, using: cableParameters), sender: cableSender, frames: payloads.count)
+        print("PASS: por cable sin clave → Bonjour auth=usb → TLS con clave fija → video, ACKs y reporte.")
+    }
+
     let log = String(decoding: try Diagnostics.shared.report(), as: UTF8.self)
     try check(!log.contains(link.name) && !link.bindHosts.contains(where: log.contains), "El registro contiene la interfaz o una dirección")
     print("PASS: prueba de enlace completa. Ambos extremos en esta Mac; la prueba física con la iMac sigue pendiente.")

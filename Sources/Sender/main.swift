@@ -18,6 +18,9 @@ import Network
     private let fps = NSPopUpButton()
     private let quality = NSPopUpButton()
     private let code = NSTextField(string: "")
+    private let fingerprint = label("", size: 12)
+    private var copyButton: NSButton!
+    private var cableSession = false
     private let status = label("Prepara la conexión y abre el receptor en la iMac.")
     private let metrics = label("", size: 12)
     private var startButton: NSButton!, stopButton: NSButton!
@@ -59,14 +62,15 @@ import Network
         startButton = button("Preparar conexión", target: self, action: #selector(prepare))
         stopButton = button("Desconectar", target: self, action: #selector(disconnect))
         stopButton.isEnabled = false
-        let actions = NSStackView(views: [startButton, stopButton, button("Copiar clave", target: self, action: #selector(copyCode))])
+        copyButton = button("Copiar clave", target: self, action: #selector(copyCode))
+        let actions = NSStackView(views: [startButton, stopButton, copyButton])
         let modes = NSStackView(views: [resolution, fps, quality])
         let stack = NSStackView(views: [
             label("Tu iMac, como segunda pantalla", size: 25, bold: true),
             label("Las aplicaciones corren en esta MacBook. La iMac recibe la imagen por cable USB o por la red local."),
             label("1. Conexión con la iMac · puerto 7777", bold: true), links, linkHint,
             label("2. Resolución, fluidez y calidad", bold: true), modes,
-            label("3. Clave temporal para pegar en el receptor", bold: true), code, actions,
+            label("3. Clave temporal para el receptor · por cable USB no hace falta", bold: true), code, fingerprint, actions,
             status, metrics,
             button("Prueba de movimiento", target: self, action: #selector(showPattern)),
             label("Mueve ventanas por el borde derecho de la MacBook. Puedes cambiar la posición en Ajustes del Sistema → Pantallas.", size: 12),
@@ -162,7 +166,7 @@ import Network
                 ? "USB 3: margen de sobra para 1440p a 60 FPS."
                 : "USB 2.0 (≈340 Mbps medidos): suficiente para 1440p a 60 FPS. Un cable USB 3 da más margen."
             let address = link.ipv4 == nil ? " La IPv4 tarda unos 20 s; la iMac puede encontrar la MacBook antes." : ""
-            linkHint.stringValue = "Cable directo a la iMac. \(speed)\(address)"
+            linkHint.stringValue = "Cable directo a la iMac, sin clave. \(speed)\(address)"
         case .thunderbolt, .ethernet:
             linkHint.stringValue = "Conexión por cable: se recomienda 2560 × 1440 a 60 FPS."
         case .wifi, .other:
@@ -183,7 +187,11 @@ import Network
             guard let link = selectedLink, !link.bindHosts.isEmpty else {
                 throw DisplayError("No hay conexión con la iMac. Conecta el cable USB‑A → USB‑C o une ambas Macs al mismo Wi‑Fi.")
             }
-            let secret = try Pairing.generate()
+            // Por cable USB no se comparte clave (decisión del usuario): clave fija,
+            // escucha solo en el cable y aceptación explícita. En Wi‑Fi, clave nueva.
+            let cable = link.kind == .usbCable
+            let secret = cable ? Pairing.cableCode : try Pairing.generate()
+            let waitToken = String(format: "%08x", UInt32.random(in: .min ... .max))
             generation = UUID(); receivedHello = false
             let epoch = generation
             var created = [NWListener]()
@@ -204,20 +212,33 @@ import Network
                 created.append(server)
             }
             listeners = created; readyListeners = 0; failedListeners = 0
-            sessionLink = link; report = nil
-            code.stringValue = secret
+            sessionLink = link; report = nil; cableSession = cable
+            if cable {
+                code.stringValue = "No hace falta clave: la iMac se conecta sola por el cable USB."
+                fingerprint.stringValue = "Solo se escucha en el cable. Nada se transmite hasta que aceptes aquí."
+                copyButton.isEnabled = false
+            } else {
+                code.stringValue = secret
+                fingerprint.stringValue = "Huella de la clave: \(Pairing.fingerprint(code: secret) ?? "—") · la iMac debe mostrar la misma al pegarla."
+                copyButton.isEnabled = true
+            }
             for server in created { server.start(queue: .main) }
             advertiser.onUpdate = { error in
                 Diagnostics.shared.event("bonjour_registration", ["status": .count(Int(error))])
             }
-            let advertised = advertiser.start(interfaceIndex: link.interfaceIndex, link: link.kind)
+            let advertised = advertiser.start(interfaceIndex: link.interfaceIndex, link: link.kind, keyless: cable, session: waitToken)
             Diagnostics.shared.event("listener_link", ["kind": .tag(link.kind.diagnosticTag), "ipv4": .flag(link.ipv4 != nil),
                 "ipv6_link_local": .flag(link.ipv6LinkLocal != nil), "speed_mbps": .count(link.speedMbps ?? 0),
-                "bonjour_status": .count(Int(advertised))])
+                "bonjour_status": .count(Int(advertised)), "keyless": .flag(cable)])
             setOptions(enabled: false)
             stopButton.isEnabled = true
-            let manual = link.ipv4.map { " Si no aparece, escribe la IP \($0)." } ?? ""
-            status.stringValue = "Esperando a la iMac por \(link.kind.title). Abre iMac Receiver: la MacBook aparecerá en la lista; pega esta clave.\(manual)"
+            if cable {
+                let manual = link.ipv4.map { " Si no se conecta, en la iMac elige la IP manual \($0) y deja la clave vacía." } ?? ""
+                status.stringValue = "Esperando a la iMac por cable USB. Abre iMac Receiver en la iMac: se conectará sola, sin clave.\(manual)"
+            } else {
+                let manual = link.ipv4.map { " Si no aparece, escribe la IP \($0)." } ?? ""
+                status.stringValue = "Esperando a la iMac por \(link.kind.title). Abre iMac Receiver: la MacBook aparecerá en la lista; pega esta clave.\(manual)"
+            }
             metrics.stringValue = "Todavía no se transmite el escritorio."
         } catch {
             Diagnostics.shared.failure("prepare_failed", error: error)
@@ -246,13 +267,41 @@ import Network
             Diagnostics.shared.event("extra_connection_rejected")
             connection.cancel(); return
         }
-        Diagnostics.shared.event("peer_connected")
-        advertiser.stop() // Un solo receptor por sesión.
+        // Sin clave por cable, solo se admite el equipo al otro extremo del cable,
+        // no procesos de esta misma Mac conectando a su propia dirección.
+        if cableSession, let link = sessionLink, isOwnAddress(connection.endpoint, of: link) {
+            Diagnostics.shared.event("local_peer_rejected")
+            connection.cancel(); return
+        }
+        Diagnostics.shared.event("peer_connected", ["keyless": .flag(cableSession)])
         let peerChannel = PacketChannel(connection)
         channel = peerChannel
         peerChannel.onPacket = { [weak self] data in self?.packet(data) }
-        peerChannel.onClose = { [weak self] reason in self?.stopSession(reason, cause: "transport_closed") }
+        peerChannel.onClose = { [weak self, weak peerChannel] reason in
+            guard let self else { return }
+            // Antes del saludo (clave distinta o conexión caída) se sigue esperando
+            // con la misma clave, en vez de obligar a preparar otra.
+            if !self.receivedHello, !self.stopping, let peerChannel, self.channel === peerChannel {
+                self.channel = nil
+                Diagnostics.shared.event("pairing_attempt_failed", ["tls_ready": .flag(peerChannel.ready)])
+                if peerChannel.ready {
+                    self.status.stringValue = "La iMac se desconectó antes de pedir la pantalla. Sigue esperando."
+                } else {
+                    self.status.stringValue = "Un receptor intentó conectar con otra clave. Pega en la iMac la clave actual y comprueba la huella. Sigue esperando."
+                }
+                return
+            }
+            self.stopSession(reason, cause: "transport_closed")
+        }
         peerChannel.start()
+    }
+    private func isOwnAddress(_ endpoint: NWEndpoint, of link: LocalLink) -> Bool {
+        guard case .hostPort(let host, _) = endpoint else { return false }
+        switch host {
+        case .ipv4(let address): return link.bindHosts.contains { IPv4Address($0)?.rawValue == address.rawValue }
+        case .ipv6(let address): return link.bindHosts.contains { IPv6Address($0)?.rawValue == address.rawValue }
+        default: return false
+        }
     }
     private func packet(_ data: Data) {
         guard let channel, !stopping else { return }
@@ -263,13 +312,18 @@ import Network
             }
             peer = negotiated
             receivedHello = true
+            advertiser.stop() // Un solo receptor por sesión.
             Diagnostics.shared.event("hello_received", ["frame_window": .count(peer.window), "protocol": .count(peer.version)])
             Diagnostics.shared.event("consent_requested")
             let epoch = generation
             let alert = NSAlert()
             alert.messageText = "¿Transmitir a esta iMac?"
-            alert.informativeText = "Un receptor con la clave de esta sesión solicita la pantalla adicional. Acepta si acabas de conectarlo desde tu iMac."
+            alert.informativeText = cableSession
+                ? "La iMac conectada por cable USB solicita la pantalla adicional. Por cable no se usa clave: acepta solo si acabas de abrir el receptor en tu iMac."
+                : "Un receptor con la clave de esta sesión solicita la pantalla adicional. Acepta si acabas de conectarlo desde tu iMac."
             alert.addButton(withTitle: "Aceptar y transmitir"); alert.addButton(withTitle: "Rechazar")
+            // La iMac puede conectarse sola: trae la solicitud al frente para verla.
+            NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil)
             alert.beginSheetModal(for: window) { [weak self] answer in
                 guard let self, self.generation == epoch, !self.stopping else { return }
                 if answer == .alertFirstButtonReturn {
@@ -435,7 +489,8 @@ import Network
         sessionLink = nil; report = nil
         pattern?.orderOut(nil); pattern = nil
         display.stop(); receivedHello = false
-        code.stringValue = ""; stopButton.isEnabled = false
+        code.stringValue = ""; fingerprint.stringValue = ""; cableSession = false
+        copyButton.isEnabled = true; stopButton.isEnabled = false
         Task { @MainActor in
             await startup?.value
             await capture?.stop(); capture = nil

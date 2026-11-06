@@ -57,13 +57,13 @@ Historial: en v0.1.0 por Wi‑Fi el usuario reportó «2.9 FPS · 0.6 Mbps · AC
 con retraso al escribir y mover ventanas. Esa lectura promediaba toda la sesión.
 v0.2.0–v0.3.1 corrigieron el flujo y añadieron métricas y diagnóstico.
 
-## Instalar v0.4.0
+## Instalar v0.4.1
 
-Actualiza **las dos apps**: el receptor v0.4.0 necesita el emisor v0.4.0. Desde v0.3.0
+Actualiza **las dos apps**: el modo sin clave por cable necesita v0.4.1 en ambas. Desde v0.3.0
 puedes usar **Buscar actualizaciones…** en cada app, con la pantalla desconectada.
 Con v0.1.0/v0.2.0, descarga manualmente desde la release. Coloca cada app en una
 carpeta local escribible, como `~/Applications`, y cierra la copia anterior con ⌘Q.
-El título debe mostrar **v0.4.0 (5)**.
+El título debe mostrar **v0.4.1 (6)**.
 
 macOS puede volver a pedir autorización de apertura, grabación de pantalla (Sender) y
 red local (ambas) por la firma ad hoc. La instalación no conserva necesariamente esos
@@ -72,20 +72,21 @@ permisos. Proceso de publicación: [docs/ACTUALIZACIONES.md](docs/ACTUALIZACIONE
 ## Prueba por cable
 
 1. Conecta el cable: USB‑A en la parte trasera de la iMac y USB‑C en la MacBook.
-2. En Sender, comprueba que el selector muestre «Cable USB · … · USB 2.0 · 480 Mbps»
-   y los valores 2560 × 1440 / 60 FPS / 40 Mbps. Pulsa **Preparar conexión**.
-3. En Receiver debe aparecer «MacBook · Cable USB». Pega la clave y pulsa Conectar.
-   Si no aparece en unos segundos, elige la IP manual y escribe la IPv4 del emisor.
-4. Acepta en la MacBook. La iMac entra sola en pantalla completa.
-5. Pulsa **Prueba de movimiento**. Espera 5–10 s y anota las tres líneas de métricas
-   del emisor: captura/entrega, preparación/ACK y la línea de la iMac (FPS mostrados,
-   hardware/software, ms de decodificación).
+2. Abre iMac Receiver v0.4.1 en la iMac y déjalo abierto.
+3. En la MacBook, comprueba en Ajustes → Privacidad y seguridad → Grabación de
+   pantalla que **iMac Sender** esté activado (cada versión nueva lo pierde). Abre Sender
+   y verifica «Cable USB · … · USB 2.0 · 480 Mbps» y 2560 × 1440 / 60 FPS / 40 Mbps.
+4. Pulsa **Preparar conexión**. La iMac se conecta sola, **sin clave**. Acepta en la MacBook.
+   Si no se conecta, en la iMac elige la IP manual 169.254.x.x del emisor y deja la clave vacía.
+5. La iMac entra sola en pantalla completa. Pulsa **Prueba de movimiento**. Espera
+   5–10 s y anota las tres líneas de métricas del emisor, incluida la de la iMac
+   (FPS mostrados, hardware/software, ms de decodificación).
 6. Cierra el patrón. Mueve una ventana a la iMac, escribe, selecciona texto y desplázate.
    Comprueba que el texto queda nítido unos instantes después de dejar de moverlo.
 7. Si la iMac no sostiene 60 FPS (decodificación por software o FPS mostrados bajos),
    prueba 1920 × 1080 / 60 y compara. Registra CPU de ambas Macs tras 10 minutos.
 8. Desconecta el cable durante la sesión: el emisor debe avisar y cerrar en ~2 s y
-   la pantalla virtual debe desaparecer. Vuelve a conectar con clave nueva.
+   la pantalla virtual debe desaparecer.
 
 Para medir latencia física se necesita una cámara que capture ambas pantallas a la vez;
 el ACK no la mide. Ante un fallo, pulsa **Exportar diagnóstico…** en las dos apps.
@@ -114,7 +115,10 @@ usuario ni capturas de contenido personal:
   MacBook y espera unos segundos. `ifconfig en4`, `en5` o `en6` debe decir «active».
   Ejecuta `bash scripts/test-link.sh --run --require-usb` en la MacBook.
 - **La iMac no encuentra la MacBook:** acepta el permiso de red local en ambas Macs,
-  pulsa Preparar conexión en el emisor o usa la IP manual 169.254.x.x que muestra.
+  pulsa Preparar conexión en el emisor o usa la IP manual 169.254.x.x que muestra,
+  con la clave vacía si es por cable.
+- **«La clave no coincide»:** solo por Wi‑Fi. Copia la clave actual; la huella de 4
+  caracteres debe ser igual en ambas Macs. El emisor sigue esperando.
 - **«La MacBook cerró la conexión al recibir el saludo»:** el emisor es anterior a
   v0.4.0. Actualízalo.
 - **Falla captura:** permiso de grabación de pantalla al emisor actual y reinicio de

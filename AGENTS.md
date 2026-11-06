@@ -72,6 +72,9 @@ Una prueba de duplicación puede servir para validar el transporte, pero no reem
 - Una pantalla adicional, con resolución y FPS configurables.
 - Conexión manual, receptor a pantalla completa y estados de conexión/error visibles.
 - Emparejamiento explícito antes de transmitir el escritorio, con clave temporal y TLS-PSK.
+- Excepción decidida por el usuario el 2026-11-06: **por cable USB no se comparte clave**.
+  Se usa una clave fija pública, el emisor escucha solo en el cable, rechaza procesos de
+  la propia MacBook y exige aceptación explícita. Nunca aplicar ese modo a Wi‑Fi o Ethernet.
 - Sin audio, acceso por Internet, control remoto desde la iMac ni varios receptores en la primera versión.
 - Sin abrir puertos del router ni transmitir el escritorio a servicios externos.
 
@@ -116,3 +119,10 @@ como tal. También: Bonjour limitado al enlace, saludo v3 (ACK al mostrar, repor
 de la iMac), decodificación VideoToolbox, H.264 High y refinamiento de pantalla
 quieta. Leer `docs/CABLE_USB.md`. Falta medir el escritorio real por el cable en la
 iMac: no afirmar fluidez ni decodificación por hardware allí hasta medirlo.
+
+v0.4.1: primer intento real por cable (2026-11-06) llegó a TLS, saludo v3, aceptación y
+pantalla virtual 2560 × 1440; falló por el permiso de grabación de pantalla de la build
+nueva (firma ad hoc). Los intentos siguientes fallaron por clave antigua en la iMac.
+v0.4.1 elimina la clave por cable (conexión automática), muestra huella de clave en
+Wi‑Fi, sigue esperando tras una clave equivocada y la explica al instante. Todavía
+falta ver el escritorio por el cable en la iMac y sus métricas.

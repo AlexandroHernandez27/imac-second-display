@@ -119,6 +119,19 @@ manualmente por un canal de confianza. TLS 1.2 usa `TLS_PSK_WITH_AES_128_GCM_SHA
 No se guarda la clave en archivos ni se imprime en logs. Esta suite PSK **no ofrece
 forward secrecy**; conservar la clave privada y rotarla es parte del diseño del prototipo.
 
+**Por cable USB (v0.4.1, decisión del usuario): sin clave.** Ambas apps usan una
+clave fija y pública derivada de un texto constante; no aporta secreto. El emisor solo
+escucha y se anuncia en el cable, rechaza conexiones de sus propias direcciones y pide
+aceptación. El receptor solo la usa si el anuncio trae `auth=usb` y no llegó por Wi‑Fi,
+y se conecta solo una vez por identificador de espera (`s`). En Wi‑Fi y Ethernet no cambia.
+
+En Wi‑Fi, ambas apps muestran una huella de 4 caracteres (SHA-256 de la clave) para
+comprobar que coinciden. Una clave distinta ya no cierra la espera del emisor. En el
+cliente, Network.framework reporta `waiting(-9820)` o `failed(-9846)`; ambos cierran al
+instante con «La clave no coincide». Contra un servicio Bonjour quedaba en «preparing»
+mientras probaba direcciones, así que el receptor lo resuelve antes con UDP (sin enviar
+datos) y conecta TLS a la dirección resultante.
+
 Un solo cliente y confirmación local del emisor antes de capturar. No se usa una
 verificación que acepte cualquier certificado. La clave equivocada falló en la prueba.
 No hay NAT traversal ni apertura de puertos. No exponer el puerto al exterior; una

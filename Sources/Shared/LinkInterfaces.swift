@@ -176,9 +176,13 @@ enum LinkInventory {
                     speed = deviceSpeed(state["ConnectionSpeedDescription"] as? String)
                     break
                 }
-                if hostSide, let vendor = property(entry, "idVendor") as? Int {
+                // La interfaz USB también publica idVendor: se espera al nodo del dispositivo.
+                if hostSide, IOObjectConformsTo(entry, "IOUSBHostDevice") != 0 {
+                    let vendor = property(entry, "idVendor") as? Int
                     let product = property(entry, "USB Product Name") as? String ?? property(entry, "kUSBProductString") as? String
-                    matched = vendor == 0x05AC && product == "Mac"
+                    // Una Mac en modo dispositivo se presenta como Apple «Mac». Sin nombre
+                    // legible se acepta igualmente un dispositivo NCM de Apple.
+                    matched = vendor == 0x05AC && (product == nil || product == "Mac")
                     speed = hostSpeed(property(entry, "USBSpeed") as? Int)
                     break
                 }

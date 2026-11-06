@@ -77,6 +77,10 @@ Una rotación puede eliminar intentos antiguos; exporta pronto después del fall
 | `bonjour_registration` con estado distinto de 0 | Anuncio Bonjour; usar la IP manual |
 | `discovery_waiting` / `discovery_failed` | Búsqueda en el receptor; permiso de red local |
 | `hello_closed_immediately` | Emisor anterior a v0.4.0 que rechaza el saludo v3 |
+| `transport_close` con `cause: key_mismatch` | Clave distinta: cada «Preparar conexión» crea otra; comparar la huella |
+| `pairing_attempt_failed` (Sender) | Intento antes del saludo; el emisor sigue esperando |
+| `local_peer_rejected` (Sender) | Por cable sin clave, se rechazó una conexión desde la propia MacBook |
+| `capture_permission_result` con `granted: false` tras actualizar | Volver a activar la grabación de pantalla de la versión nueva |
 | `decoder_fallback` | VideoToolbox no creó la sesión; se usa AVFoundation |
 | `receiver_report` / `receiver_metrics` con `hardware_decode: false` | La iMac decodifica por CPU; comparar 1080p |
 

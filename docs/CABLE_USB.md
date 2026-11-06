@@ -52,16 +52,34 @@ extremos dentro de la MacBook.
 
 1. Conecta el cable: USB‑A en la parte trasera de la iMac y USB‑C en cualquier
    puerto de la MacBook. Debe ser un cable de datos, no solo de carga.
-2. Abre **iMac Sender v0.4.0** o posterior. El selector muestra «Cable USB · …» y
+2. Abre **iMac Sender v0.4.1** o posterior. El selector muestra «Cable USB · …» y
    aplica 2560 × 1440, 60 FPS y 40 Mbps. Puedes cambiarlos.
-3. Pulsa **Preparar conexión** y copia la clave.
-4. En la iMac abre **iMac Receiver v0.4.0**. Aparece «MacBook · Cable USB». Pega la
-   clave y pulsa **Conectar**. Acepta en la MacBook.
-5. El receptor entra solo en pantalla completa al recibir la primera imagen.
+3. Abre **iMac Receiver v0.4.1** en la iMac y déjalo abierto.
+4. Pulsa **Preparar conexión** en la MacBook. **Por cable no hay clave**: la iMac
+   encuentra la MacBook y se conecta sola.
+5. Acepta «¿Transmitir a esta iMac?» en la MacBook. La iMac entra en pantalla completa.
 
-La primera vez, macOS puede pedir permiso de **red local** para cada app. Acéptalo;
-sin él no hay búsqueda automática ni conexión. Si la iMac no muestra la MacBook,
-elige «Escribir la IP manualmente» y usa la IPv4 169.254.x.x que muestra el emisor.
+La primera vez, macOS puede pedir permiso de **red local** en cada Mac y, en la
+MacBook, de **grabación de pantalla** para iMac Sender. Con la firma local, ese último
+permiso se pierde en cada versión nueva: hay que volver a activarlo (y reabrir la app).
+Si la iMac no se conecta sola, elige «Escribir la IP manualmente», escribe la IPv4
+169.254.x.x que muestra el emisor y deja la clave vacía.
+
+## Sin clave por cable: decisión y protecciones
+
+A petición del usuario (2026-11-06), por cable USB no se comparte clave. Ambas apps
+usan una clave TLS-PSK fija y pública solo en ese modo, que por tanto **no aporta
+secreto**. La protección es otra:
+
+- El cable es un enlace punto a punto entre las dos Macs; no hay terceros en el medio.
+- El emisor escucha solo en las direcciones del cable y se anuncia solo en esa interfaz.
+- Rechaza conexiones que vienen de la propia MacBook (procesos locales).
+- Nada se transmite hasta que aceptas en la MacBook; el diálogo indica «por cable USB».
+- El receptor solo usa la clave fija si el emisor la anuncia (`auth=usb`) y el anuncio
+  no llegó por Wi‑Fi. En Wi‑Fi y Ethernet sigue la clave temporal de 256 bits.
+
+Riesgo residual: un programa en la iMac, o un equipo conectado al puerto USB‑C de la
+MacBook mientras espera, podría pedir la pantalla. Sin tu aceptación no recibe nada.
 
 ## Lo que hace la app
 
@@ -72,7 +90,9 @@ elige «Escribir la IP manualmente» y usa la IPv4 169.254.x.x que muestra el em
   (disponible al instante) e IPv4 cuando existe. No abre el puerto en Wi‑Fi.
 - Se anuncia por Bonjour **solo en la interfaz del cable** y solo mientras espera.
   El registro TXT contiene versión de protocolo y tipo de enlace, nada más.
-- El receptor encuentra el servicio y conecta usando esa interfaz exacta.
+- El receptor encuentra el servicio, lo resuelve a una dirección concreta y conecta
+  por esa interfaz. Así una clave distinta falla al instante con un mensaje claro.
+- Por cable, la iMac se conecta sola una vez por cada «Preparar conexión».
 - Si se desconecta el cable, el emisor cierra la sesión en unos 2 segundos con un
   mensaje claro. Volver a conectar requiere una clave nueva, como siempre.
 
@@ -81,7 +101,7 @@ elige «Escribir la IP manualmente» y usa la IPv4 169.254.x.x que muestra el em
 El cable forma una red entre las dos Macs. Cualquier servicio que cada Mac tenga
 activado para todas las interfaces, como Compartir pantalla, Compartir archivos o
 SSH, también queda alcanzable desde la otra Mac por el cable, igual que en una LAN.
-La transmisión de escritorio conserva cifrado, clave temporal y aceptación.
+Por cable la transmisión no usa clave secreta (ver arriba); conserva la aceptación.
 
 ## Comprobar el enlace sin la app
 
