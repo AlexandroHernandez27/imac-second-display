@@ -39,6 +39,10 @@ compatible con v0.2.0/v0.3.0; el emisor admite además un receptor v1 con ventan
   total en GiB. Un UUID nuevo identifica cada intento, no al dispositivo.
 - Listener, negociación TLS, tipo de interfaz (Wi-Fi/Ethernet/loopback), disponibilidad
   de ruta y errores de red con dominio conocido y código numérico.
+- Desde v0.4.0: tipo de enlace elegido (cable USB, Thunderbolt, Ethernet, Wi‑Fi),
+  velocidad USB en Mbps, si había IPv4/IPv6, resultado del anuncio Bonjour, cable
+  conectado/desconectado, búsqueda en el receptor, decodificación por hardware o
+  software, ms de decodificación y FPS mostrados por la iMac.
 - Saludo/protocolo, petición de consentimiento y resultado, permiso de captura,
   creación de pantalla, inicio de captura/encoder y primera imagen enviada/encolada.
 - Métricas cada cinco segundos, errores de renderer, cierres, timeouts y reposo.
@@ -69,8 +73,16 @@ Una rotación puede eliminar intentos antiguos; exporta pronto después del fall
 | `renderer_failed` / `renderer_timeout` | Decodificación/presentación en el receptor |
 | `transport_header_incomplete` con EOF | El otro equipo cerró; buscar la causa en su registro |
 | `video_ack_timeout` | La imagen dejó de avanzar; comparar métricas de ambos |
+| `session_link_lost` | Se desconectó el cable o se perdió la red de la sesión |
+| `bonjour_registration` con estado distinto de 0 | Anuncio Bonjour; usar la IP manual |
+| `discovery_waiting` / `discovery_failed` | Búsqueda en el receptor; permiso de red local |
+| `hello_closed_immediately` | Emisor anterior a v0.4.0 que rechaza el saludo v3 |
+| `decoder_fallback` | VideoToolbox no creó la sesión; se usa AVFoundation |
+| `receiver_report` / `receiver_metrics` con `hardware_decode: false` | La iMac decodifica por CPU; comparar 1080p |
 
-La aceptación/ACK de una muestra indica encolado, no que el panel la haya mostrado.
+Con receptor v0.4.0, el ACK indica que la imagen se decodificó y se entregó a la capa
+de presentación; con receptores anteriores indica solo encolado. Ninguno confirma el
+refresco físico del panel.
 El registro no mide latencia física ni demuestra aceleración de decodificación Intel.
 Los UUID son locales a cada app: correlacionar por hora UTC, rol y secuencia de eventos.
 

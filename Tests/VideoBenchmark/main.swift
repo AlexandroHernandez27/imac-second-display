@@ -1,11 +1,14 @@
 import AppKit
 import VideoToolbox
 
+import CoreText
+
 @MainActor final class Decoder {
     private var session: VTDecompressionSession?
     private var format: CMVideoFormatDescription?
     private var completion: ((Result<Void, Error>) -> Void)?
     private(set) var lastSource = 0
+    private(set) var lastImage: CVPixelBuffer?
 
     func decode(_ packet: VideoPacket, completion: @escaping (Result<Void, Error>) -> Void) {
         do {
@@ -30,6 +33,7 @@ import VideoToolbox
                     DispatchQueue.main.async {
                         let done = owner.completion; owner.completion = nil
                         owner.lastSource = decodedMarker
+                        if let image { owner.lastImage = image }
                         done?(valid ? .success(()) : .failure(DisplayError("Falló la decodificación: \(status)")))
                     }
                 }, decompressionOutputRefCon: Unmanaged.passUnretained(self).toOpaque())
@@ -137,6 +141,144 @@ func image(pool: CVPixelBufferPool, marker: Int) throws -> CVPixelBuffer {
     } catch { await pipeline.stop(); decoder.stop(); throw error }
 }
 
+/// Página de texto real (negro sobre blanco), como un documento o código.
+func textImage(width: Int, height: Int, seed: Int) throws -> CVPixelBuffer {
+    var output: CVPixelBuffer?
+    try requireSuccess(CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA,
+        [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &output), "Crear página")
+    guard let output else { throw DisplayError("Página ausente") }
+    CVPixelBufferLockBaseAddress(output, [])
+    defer { CVPixelBufferUnlockBaseAddress(output, []) }
+    guard let context = CGContext(data: CVPixelBufferGetBaseAddress(output), width: width, height: height, bitsPerComponent: 8,
+        bytesPerRow: CVPixelBufferGetBytesPerRow(output), space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) else { throw DisplayError("Contexto ausente") }
+    context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    let words = ["pantalla", "iMac", "func", "let", "VTCompression", "latencia", "cable", "USB", "fluidez", "píxel",
+                 "MacBook", "return", "struct", "0x1f", "42", "árbol", "ñandú", "{", "}", "->", "Data()", "while"]
+    var state = UInt64(seed * 7919 + 17), text = ""
+    func next() -> Int { state = state &* 6364136223846793005 &+ 1442695040888963407; return Int(state >> 33) }
+    for line in 0..<(height / 16) {
+        text += "\(line + seed * 100) "
+        for _ in 0..<(10 + next() % 14) { text += words[next() % words.count] + " " }
+        text += "\n"
+    }
+    let attributed = NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.black])
+    let framesetter = CTFramesetterCreateWithAttributedString(attributed)
+    CTFrameDraw(CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0),
+        CGPath(rect: CGRect(x: 24, y: 0, width: width - 48, height: height), transform: nil), nil), context)
+    return output
+}
+
+func psnr(_ a: CVPixelBuffer, _ b: CVPixelBuffer) -> Double {
+    CVPixelBufferLockBaseAddress(a, .readOnly); CVPixelBufferLockBaseAddress(b, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(a, .readOnly); CVPixelBufferUnlockBaseAddress(b, .readOnly) }
+    let width = min(CVPixelBufferGetWidth(a), CVPixelBufferGetWidth(b)), height = min(CVPixelBufferGetHeight(a), CVPixelBufferGetHeight(b))
+    let pa = CVPixelBufferGetBaseAddress(a)!.assumingMemoryBound(to: UInt8.self), pb = CVPixelBufferGetBaseAddress(b)!.assumingMemoryBound(to: UInt8.self)
+    let ra = CVPixelBufferGetBytesPerRow(a), rb = CVPixelBufferGetBytesPerRow(b)
+    var squared = 0.0
+    for y in 0..<height { for x in 0..<width { for c in 0..<3 {
+        let d = Double(pa[y * ra + x * 4 + c]) - Double(pb[y * rb + x * 4 + c]); squared += d * d
+    } } }
+    return 10 * log10(255 * 255 / max(1e-9, squared / Double(width * height * 3)))
+}
+
+/// Nitidez final de una pantalla que queda quieta tras un cambio. Sin refinar,
+/// ScreenCaptureKit no envía más imágenes y la iMac conserva esa calidad.
+@MainActor func stillQuality(refinement: Bool, sources: [CVPixelBuffer], bitrate: Int) async throws -> (psnr: Double, refined: Int) {
+    let pipeline = CapturePipeline(window: 3, refinement: refinement)
+    let decoder = Decoder()
+    let receiver = FrameReceiver()
+    var failure: String?
+    var refined = 0
+    receiver.render = { packet, completion in decoder.decode(packet, completion: completion) }
+    receiver.onAcknowledged = { pipeline.acknowledge($0) }
+    receiver.onError = { failure = $0 }
+    pipeline.onFrame = { data, _ in
+        do { try receiver.receive(VideoPacket(data: data)) } catch { failure = error.localizedDescription }
+    }
+    pipeline.onError = { failure = $0 }
+    defer { decoder.stop() }
+    let width = CVPixelBufferGetWidth(sources[0]), height = CVPixelBufferGetHeight(sources[0])
+    try pipeline.startSynthetic(width: width, height: height, fps: 60, bitrate: bitrate)
+    let start = ProcessInfo.processInfo.systemUptime
+    for (index, source) in sources.enumerated() {
+        let remaining = start + Double(index) / 60 - ProcessInfo.processInfo.systemUptime
+        if remaining > 0 { try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000)) }
+        pipeline.submitSynthetic(source, pts: .invalid)
+    }
+    // Margen para el refinamiento: tres intervalos quietos y hasta ocho cuadros.
+    let deadline = ProcessInfo.processInfo.systemUptime + 2
+    while ProcessInfo.processInfo.systemUptime < deadline {
+        if let failure { await pipeline.stop(); throw DisplayError(failure) }
+        let sample = await snapshot(pipeline)
+        refined = max(refined, sample.refinedFrames)
+        try await Task.sleep(nanoseconds: 50_000_000)
+    }
+    let final = await snapshot(pipeline)
+    await pipeline.stop()
+    guard final.inFlight == 0, let image = decoder.lastImage else { throw DisplayError("La imagen quieta no terminó de llegar.") }
+    return (psnr(image, sources.last!), refined)
+}
+
+/// Decoder de producción del receptor, ACK al terminar de decodificar, 1440p/60.
+@MainActor func productionReceiver(width: Int, height: Int, bitrate: Int) async throws {
+    let pipeline = CapturePipeline(window: 3)
+    let decoder = VideoDecoder()
+    let receiver = FrameReceiver()
+    var statistics = DecodeStatistics(now: ProcessInfo.processInfo.systemUptime)
+    var failure: String?
+    var format: CMVideoFormatDescription?
+    var parameterSets = Data()
+    receiver.render = { packet, completion in
+        do {
+            if format == nil || packet.sps + packet.pps != parameterSets {
+                format = try packet.formatDescription(); parameterSets = packet.sps + packet.pps
+                try decoder.prepare(format: format!)
+            }
+            decoder.decode(try packet.sampleBuffer(format: format!)) { result in
+                switch result {
+                case .success(let (_, milliseconds)):
+                    statistics.shown(at: ProcessInfo.processInfo.systemUptime, decodeMS: milliseconds)
+                    completion(.success(()))
+                case .failure(let error): completion(.failure(error))
+                }
+            }
+        } catch { completion(.failure(error)) }
+    }
+    receiver.onAcknowledged = { pipeline.acknowledge($0) }
+    receiver.onError = { failure = $0 }
+    pipeline.onFrame = { data, _ in
+        do { try receiver.receive(VideoPacket(data: data)) } catch { failure = error.localizedDescription }
+    }
+    pipeline.onError = { failure = $0 }
+    defer { decoder.invalidate() }
+    try pipeline.startSynthetic(width: width, height: height, fps: 60, bitrate: bitrate)
+    var pool: CVPixelBufferPool?
+    try requireSuccess(CVPixelBufferPoolCreate(nil, nil, [kCVPixelBufferWidthKey: width, kCVPixelBufferHeightKey: height,
+        kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA, kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &pool), "Crear pool")
+    guard let pool else { throw DisplayError("Pool ausente") }
+    let start = ProcessInfo.processInfo.systemUptime
+    for index in 1...180 {
+        let remaining = start + Double(index - 1) / 60 - ProcessInfo.processInfo.systemUptime
+        if remaining > 0 { try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000)) }
+        if let failure { await pipeline.stop(); throw DisplayError(failure) }
+        pipeline.submitSynthetic(try image(pool: pool, marker: index), pts: .invalid)
+    }
+    let moving = await snapshot(pipeline)
+    let shown = statistics.snapshot(at: ProcessInfo.processInfo.systemUptime)
+    try await Task.sleep(nanoseconds: 1_000_000_000)
+    let drained = await snapshot(pipeline)
+    await pipeline.stop()
+    if let failure { throw DisplayError(failure) }
+    let hardware = decoder.hardware.map { $0 ? "hardware" : "software" } ?? "sin confirmar"
+    print(String(format: "Receptor de producción · %d×%d · %d Mbps · captura %.1f · entrega %.1f · mostrados %.1f FPS · decodificación %@ media %.2f ms · ACK %.1f ms",
+        width, height, bitrate / 1_000_000, moving.capturedFPS, moving.deliveredFPS, shown.fps, hardware, shown.decodeMS ?? 0, moving.ackMS ?? 0))
+    guard moving.deliveredFPS > 50, shown.fps > 50, drained.inFlight == 0 else {
+        throw DisplayError("El receptor de producción no sostuvo 1440p a 60 FPS en este equipo.")
+    }
+}
+
 Task { @MainActor in
     let activity = StreamActivity()
     activity.start(keepingDisplayAwake: false)
@@ -158,6 +300,23 @@ Task { @MainActor in
         let pipelined = try await benchmark(window: 3, delayMS: 40)
         guard normal > 45, pipelined > blocked * 1.5 else { throw DisplayError("La prueba no demostró la mejora de capacidad esperada.") }
         print("PASS: encoder y decoder reales, ventana acotada y última actualización después de parar la fuente. Demora simulada, no Wi‑Fi real ni medición del panel.")
+        try await productionReceiver(width: 2560, height: 1440, bitrate: 40_000_000)
+        print("PASS: decoder de producción con ACK tras decodificar sostiene 1440p a 60 FPS en esta Mac (no mide la iMac).")
+        // Inicio de sesión con el escritorio quieto: un único IDR.
+        let page = try textImage(width: 2560, height: 1440, seed: 1)
+        let plain = try await stillQuality(refinement: false, sources: [page], bitrate: 40_000_000)
+        let refined = try await stillQuality(refinement: true, sources: [page], bitrate: 40_000_000)
+        print(String(format: "Texto quieto tras el primer cuadro · sin refinar %.2f dB · refinado %.2f dB (%d cuadros extra)", plain.psnr, refined.psnr, refined.refined))
+        // Cambio brusco a otra página y quietud.
+        let other = try textImage(width: 2560, height: 1440, seed: 2)
+        let sequence = Array(repeating: page, count: 20) + [other]
+        let plainChange = try await stillQuality(refinement: false, sources: sequence, bitrate: 40_000_000)
+        let refinedChange = try await stillQuality(refinement: true, sources: sequence, bitrate: 40_000_000)
+        print(String(format: "Texto quieto tras cambiar de página · sin refinar %.2f dB · refinado %.2f dB (%d cuadros extra)", plainChange.psnr, refinedChange.psnr, refinedChange.refined))
+        guard refined.psnr >= plain.psnr + 1.5, refinedChange.psnr >= plainChange.psnr - 0.1, refined.refined <= CapturePipeline.refinementLimit else {
+            throw DisplayError("El refinamiento no mejoró la nitidez de la pantalla quieta.")
+        }
+        print("PASS: refinamiento acotado mejora el texto quieto y se detiene solo. PSNR con conversión de color; no mide el panel.")
         activity.stop()
         exit(0)
     } catch { activity.stop(); print("FAIL: \(error.localizedDescription)"); exit(1) }

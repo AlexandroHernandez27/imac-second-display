@@ -41,13 +41,15 @@ struct VideoMetrics {
     let sourceIdle: Bool
     let oldestPendingAge: Double
     let replacedFrames: Int
+    /// Reenvíos de la última imagen quieta para que el encoder la afine.
+    let refinedFrames: Int
 }
 
 /// Ventana temporal, no promedio acumulado desde la conexión. Reloj monotónico.
 struct RecentVideoMetrics {
     private struct Event {
         let time: Double
-        var captured = 0, delivered = 0, bytes = 0, replaced = 0
+        var captured = 0, delivered = 0, bytes = 0, replaced = 0, refined = 0
         var preparation: Double?, ack: Double?
     }
     private struct Pending { let captured: Double; var sent: Double? }
@@ -62,6 +64,8 @@ struct RecentVideoMetrics {
         lastCapture = now
         append(Event(time: now, captured: 1, replaced: replaced ? 1 : 0))
     }
+    /// No actualiza `lastCapture`: refinar no es actividad nueva del escritorio.
+    mutating func refined(at now: Double) { append(Event(time: now, refined: 1)) }
     mutating func reserved(_ sequence: UInt32, capturedAt: Double) {
         pending[sequence] = Pending(captured: capturedAt)
     }
@@ -92,6 +96,7 @@ struct RecentVideoMetrics {
             inFlight: pending.count, waitingLatest: waitingLatest,
             sourceIdle: now - (lastCapture ?? started) > 0.5 && pending.isEmpty && !waitingLatest,
             oldestPendingAge: pending.values.map { max(0, now - $0.captured) }.max() ?? 0,
-            replacedFrames: events.reduce(0) { $0 + $1.replaced })
+            replacedFrames: events.reduce(0) { $0 + $1.replaced },
+            refinedFrames: events.reduce(0) { $0 + $1.refined })
     }
 }

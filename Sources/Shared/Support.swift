@@ -21,24 +21,6 @@ func isLocalIPv4(_ address: String) -> Bool {
     return parts[0] == 10 || parts[0] == 127 || (parts[0] == 192 && parts[1] == 168)
         || (parts[0] == 172 && (16...31).contains(parts[1])) || (parts[0] == 169 && parts[1] == 254)
 }
-func localAddresses() -> [String] {
-    var result = [String]()
-    var interfaces: UnsafeMutablePointer<ifaddrs>?
-    guard getifaddrs(&interfaces) == 0 else { return [] }
-    defer { freeifaddrs(interfaces) }
-    var cursor = interfaces
-    while let item = cursor {
-        defer { cursor = item.pointee.ifa_next }
-        guard let address = item.pointee.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
-              String(cString: item.pointee.ifa_name).hasPrefix("en") else { continue }
-        var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-        if getnameinfo(address, socklen_t(address.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
-            let ip = String(cString: host)
-            if isLocalIPv4(ip) { result.append(ip) }
-        }
-    }
-    return Array(Set(result)).sorted()
-}
 extension Data {
     mutating func put32(_ value: UInt32) {
         var big = value.bigEndian

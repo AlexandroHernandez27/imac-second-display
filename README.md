@@ -4,33 +4,44 @@ Prototipo nativo para usar una iMac como **pantalla adicional** de una MacBook.
 El escritorio se extiende; las aplicaciones corren en la MacBook. La iMac debe
 permanecer encendida y ejecutar el receptor.
 
-**v0.3.1 experimental:** añade registros locales exportables y versión visible en
-el título. Conserva las actualizaciones con confirmación y mejoras de video de
-v0.2.0. Pantalla independiente, captura y reproducción cifrada
-comprobadas con ambas apps ejecutándose en una M5. El usuario reporta imagen en la
-iMac y retraso al mover ventanas/escribir con v0.1.0. Esta versión corrige el flujo
-y permite medirlo mejor; la mejora en la iMac todavía requiere prueba.
-La transmisión no necesita Apple ID, suscripciones, servicios externos ni abrir
-puertos del router. La búsqueda opcional de actualizaciones consulta GitHub.
+**v0.4.0 experimental: conexión por cable USB‑A → USB‑C.** Un cable entre un puerto
+USB‑A de la iMac y un puerto USB‑C de la MacBook crea una red privada entre ambas,
+sin adaptadores ni configuración: la MacBook aparece en la iMac como un adaptador de
+red USB. Medido: USB 2.0 a 480 Mbps, ≈340 Mbps útiles y 0.6–0.9 ms de latencia de red,
+de sobra para 2560 × 1440 a 60 FPS. Las apps detectan el cable, lo prefieren, se
+encuentran solas por Bonjour y aplican 1440p / 60 FPS / 40 Mbps. Ver
+[Conexión por cable USB](docs/CABLE_USB.md).
+
+También en v0.4.0: la iMac decodifica con VideoToolbox y confirma cada imagen al
+mostrarla, así la latencia queda acotada; la MacBook muestra los FPS y el tipo de
+decodificación de la iMac; H.264 High; la pantalla quieta se refina hasta quedar
+nítida; y el receptor entra solo en pantalla completa.
+
+El enlace físico se verificó con ambas Macs. La transmisión de escritorio por el
+cable hasta la iMac **todavía debe probarse**: no se afirma fluidez en la iMac hasta
+medirla. Wi‑Fi sigue disponible. No necesita Apple ID, suscripciones, servicios
+externos ni abrir puertos del router. La búsqueda opcional de actualizaciones consulta GitHub.
 
 ## Descargar y probar
 
 Descarga las apps en [Releases](https://github.com/AlexandroHernandez27/imac-second-display/releases).
-Actualiza **ambas aplicaciones**, cerrando primero las copias anteriores.
+Actualiza **ambas aplicaciones**, cerrando primero las copias anteriores: el receptor
+v0.4.0 necesita el emisor v0.4.0.
 
-1. En la **MacBook**, abre `iMac Sender.app`. Empieza con 1920 × 1080, 30 FPS y 12 Mbps.
-2. Pulsa **Preparar conexión**. La app muestra una IP y una clave temporal.
-3. En la **iMac**, abre `iMac Receiver.app`, introduce la IP y pega la clave completa.
-4. Pulsa **Conectar** y acepta la solicitud en la MacBook.
-5. Concede al emisor el permiso de grabación de pantalla si macOS lo pide. Puede
-   requerir cerrar y reabrir la app; prepara entonces una nueva sesión.
-6. Pulsa **Prueba de movimiento** en el emisor para medir con una imagen cambiante.
-   Espera cinco segundos y observa captura/entrega; un escritorio quieto puede dar 0 FPS.
-7. En el receptor pulsa **Pantalla completa**. Mueve ventanas por el borde derecho
-   de la MacBook. Cambia la posición en Ajustes del Sistema → Pantallas si lo necesitas.
+1. Conecta un cable USB‑A (parte trasera de la iMac) → USB‑C (MacBook). Debe ser de datos.
+2. En la **MacBook**, abre `iMac Sender.app`. El selector muestra «Cable USB» y aplica
+   2560 × 1440, 60 FPS y 40 Mbps. Sin cable puedes elegir Wi‑Fi.
+3. Pulsa **Preparar conexión** y copia la clave temporal.
+4. En la **iMac**, abre `iMac Receiver.app`: aparece «MacBook · Cable USB». Pega la clave
+   completa y pulsa **Conectar**. Si no aparece, usa la IP que muestra el emisor.
+5. Acepta la solicitud en la MacBook. Concede el permiso de grabación de pantalla y,
+   si macOS lo pide en cualquiera de las dos Macs, el de red local.
+6. La iMac entra en pantalla completa. Pulsa **Prueba de movimiento** en el emisor y
+   lee las métricas: incluyen los FPS que muestra la iMac y si decodifica por hardware.
+7. Mueve ventanas por el borde derecho de la MacBook. Cambia la posición en Ajustes del
+   Sistema → Pantallas si lo necesitas.
 
-Ambas Macs deben estar en la misma LAN. Se usa TCP 7777; Ethernet utiliza el mismo
-protocolo. Autoriza las apps en los avisos de red local/firewall de tu red de confianza.
+Se usa TCP 7777 solo en el enlace elegido. Autoriza las apps en los avisos de red local.
 
 Las apps tienen firma local *ad hoc*, **sin notarización de Apple**. Si macOS bloquea
 la descarga, verifica el origen y usa la excepción puntual en Ajustes del Sistema →
@@ -57,9 +68,10 @@ Ver [funcionamiento y publicación de actualizaciones](docs/ACTUALIZACIONES.md).
 
 ## Diagnóstico de conexión
 
-Si Sender dice «El receptor usa un protocolo incompatible», comprueba que no siga
-abierta una copia v0.1.0. Cierra las apps con ⌘Q y abre las actuales desde Finder;
-el título debe mostrar **v0.3.1 (4)**. Descargar el ZIP no sustituye un proceso abierto.
+Si Sender dice «Protocolo incompatible» o Receiver indica que la MacBook cerró al
+recibir el saludo, alguna app sigue en una versión anterior. Cierra ambas con ⌘Q y
+abre las actuales desde Finder; el título debe mostrar **v0.4.0 (5)** en las dos.
+Descargar el ZIP no sustituye un proceso abierto.
 
 Desde v0.3.1, **Exportar diagnóstico…** guarda el registro local de la app.
 Reproduce el fallo y exporta en **ambos equipos**. No incluye claves, IP ni imágenes,
@@ -69,27 +81,34 @@ ni envía datos automáticamente. [Guía de diagnóstico](docs/DIAGNOSTICO.md).
 
 | Componente | Binario actual |
 | --- | --- |
-| Emisor | Apple Silicon, macOS 13 o posterior; probado inicialmente en M5 |
+| Emisor | Apple Silicon, macOS 13 o posterior; probado en M5 con macOS 27.2 |
 | Receptor | Intel o Apple Silicon, macOS 13 o posterior |
-| Red | IPv4 privada, conexión manual, un receptor |
-| Resolución | 1280 × 720, 1920 × 1080 o 2560 × 1440 |
-| Límite de FPS | 15, 30 o 60; rendimiento real por medir entre equipos |
-| Video | H.264; bitrate 6, 12 o 20 Mbps; sin audio |
+| Conexión | Cable USB‑A → USB‑C (recomendado), Thunderbolt, Ethernet o Wi‑Fi; un receptor |
+| Descubrimiento | Bonjour en el enlace elegido; IP manual como respaldo |
+| Resolución | 2560 × 1440 (nativa de la iMac 27"), 1920 × 1080 o 1280 × 720 |
+| Límite de FPS | 60, 30 o 15; rendimiento real en la iMac por medir |
+| Video | H.264 High; 6, 12, 20, 40 u 80 Mbps; sin audio |
 
-La iMac de destino reporta Sequoia 15.8.1. No hace falta cambiar su sistema para
-estas primeras pruebas. Compilar para Intel no equivale a probar en esa iMac.
+La iMac de destino reporta Sequoia 15.8.1. No hace falta cambiar su sistema.
+Compilar para Intel no equivale a probar en esa iMac.
 
 Limitaciones:
 
 - Crear la pantalla depende de **`CGVirtualDisplay`, una API privada de Apple**.
   No se garantiza compatibilidad futura ni distribución por App Store.
-- TCP con hasta tres fotogramas pendientes y una sola imagen cruda reciente.
-  Las pérdidas de red todavía pueden añadir esperas por retransmisión.
+- La red por cable USB depende de un comportamiento de macOS **no documentado** para
+  terceros (modo dispositivo CDC‑NCM de Apple Silicon). Verificado en M5 / macOS 27.2
+  con la iMac en Sequoia 15.8.1; puede cambiar en otras versiones.
+- El cable conecta las dos Macs como una LAN: los servicios activados en cada Mac para
+  todas las interfaces quedan alcanzables desde la otra.
+- La iMac no carga la MacBook de forma útil por ese cable (5 V / 500 mA).
+- TCP con hasta tres fotogramas pendientes. En Wi‑Fi las pérdidas aún pueden añadir
+  esperas por retransmisión; el cable evita la radio.
 - El contenido protegido o apps que impidan captura pueden aparecer negros.
-  No se promete compatibilidad con todos los sistemas DRM.
 - Teclado y mouse en la MacBook; sin control remoto desde la iMac.
-- Reconexión manual con clave nueva. Reposo o pérdida de conexión cierran la sesión.
-- Sin audio, acceso por Internet, Bonjour ni varios receptores.
+- Reconexión manual con clave nueva. Reposo, cable desconectado o pérdida de red
+  cierran la sesión.
+- Sin audio, acceso por Internet ni varios receptores.
 
 ## Desarrollar
 
@@ -111,12 +130,23 @@ bash scripts/test-display.sh --run
 bash scripts/test-protocol.sh --run
 bash scripts/test-video-performance.sh --run
 bash scripts/test-diagnostics.sh --run
+bash scripts/test-link.sh --run --require-usb   # con el cable conectado a la iMac
 ```
 
 La primera comprueba la pantalla independiente. La segunda prueba H.264, TLS-PSK,
 colas, métricas y rechazo de claves incorrectas. La tercera compara ventanas de
-uno/tres fotogramas con codificación y decodificación reales y ACK artificial.
+uno/tres fotogramas, mide el decoder de producción a 1440p/60 y la nitidez del texto
+quieto con y sin refinamiento. La cuarta usa la interfaz real del cable: Bonjour
+limitado a esa interfaz, TLS por Bonjour/IPv4/IPv6, saludo v3, ACK y reporte.
 No sustituyen la prueba entre equipos ni miden el panel.
+
+## Cambios de v0.4.0
+
+- Conexión por cable USB‑A → USB‑C sin adaptador, detectada automáticamente.
+- Bonjour limitado al enlace elegido; IPv6 link‑local disponible al conectar el cable.
+- Decodificación explícita con VideoToolbox, ACK al mostrar y reporte de la iMac.
+- H.264 High, sin IDR periódico y refinamiento de la pantalla quieta.
+- Valores recomendados por enlace, aviso al desconectar el cable y pantalla completa automática.
 
 ## Cambios de v0.2.0
 
@@ -130,5 +160,5 @@ No sustituyen la prueba entre equipos ni miden el panel.
 La revisión de [LanScreen](docs/COMPARACION_LANSCREEN.md) documenta otras ideas y
 qué diferencias necesitan medición antes de adoptarlas.
 
-**[Continuar en la iMac](CONTINUAR_EN_IMAC.md)** · [Pruebas](docs/PRUEBAS.md) ·
-[Arquitectura](docs/ARQUITECTURA.md) · [Avisos de terceros](THIRD_PARTY_NOTICES.md)
+**[Continuar en la iMac](CONTINUAR_EN_IMAC.md)** · [Cable USB](docs/CABLE_USB.md) ·
+[Pruebas](docs/PRUEBAS.md) · [Arquitectura](docs/ARQUITECTURA.md) · [Avisos de terceros](THIRD_PARTY_NOTICES.md)

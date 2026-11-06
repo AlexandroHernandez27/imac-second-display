@@ -149,3 +149,69 @@ conexión entre los dos equipos con las copias correctas.
 Pendiente: usar el botón de exportación en ambos equipos, reconectar con Sender y
 Receiver actuales, medir en Intel y confirmar la conservación/renovación de permisos
 después de actualizar. Esta versión no cambia el formato v2 del transporte.
+
+## 2026-11-06 · v0.4.0 · Cable USB‑A → USB‑C y fluidez
+
+### Enlace físico con la iMac (sin la app de video)
+
+El usuario conectó un cable USB‑A (iMac) → USB‑C (MacBook) con ambas encendidas.
+Observado desde la MacBook con `ioreg`, `ifconfig`, `log stream`, `ping6` y `netstat`:
+
+- La iMac enumeró la MacBook como dispositivo USB y la configuró (configuración 1).
+  Driver host de la iMac: `AppleUSBNCM` 24.6.0, coherente con Sequoia.
+- Velocidad: **High Speed, 480 Mbps**. El controlador de la M5 intentó USB 3 y
+  terminó en USB 2.0: el cable probado parece USB 2.0.
+- La interfaz pública NCM de la MacBook pasó a activa con IPv6 link‑local inmediata
+  e IPv4 169.254.x.x a los ~21 s. La iMac también obtuvo ambas (vecino NDP y ARP).
+- Latencia ICMPv6: 0.6–0.9 ms. Capacidad MacBook → iMac: **≈340 Mbps** durante 3 s
+  (UDP descartado por la iMac, medido con el contador de bytes de salida).
+- Bonjour visible en el enlace. Alimentación de la iMac: 5 V / 500 mA.
+- `remoted` de Apple usa en paralelo la interfaz privada `anpi*`; la app no la toca.
+
+Detalles y límites: [Conexión por cable USB](CABLE_USB.md).
+
+### Calidad del encoder con texto real (M5, 2560 × 1440, 60 FPS)
+
+Experimentos con páginas de texto CoreText, encoder por hardware de producción y
+PSNR sobre la imagen decodificada. El techo de ~40.5 dB se debe a la conversión de
+color de la prueba; visualmente el texto decodificado coincidía con el original.
+
+- Desplazamiento de texto: 2–8 KB por cuadro gracias a la compensación de movimiento.
+  Recodificar el mismo cuadro ya estable no mejora nada: el encoder emite cuadros vacíos.
+- El **primer IDR** sale más blando (~37 dB a 40 Mbps) y solo mejora si se envían más
+  cuadros. ScreenCaptureKit no los envía con la pantalla quieta → se implementó el
+  refinamiento adaptativo.
+- 80 Mbps no mejora la nitidez estática frente a 40 Mbps con LLRC. `MaxAllowedFrameQP`
+  bajo con LLRC descartó cuadros y `Quality` no está soportado (-12900): no se usan.
+
+### Compilación y pruebas automáticas
+
+- `bash scripts/build.sh`: PASS. Sender arm64, Receiver universal x86_64/arm64,
+  `codesign --verify --deep --strict` PASS. Los overlays Swift débiles del receptor
+  solo importan marcadores de carga, sin símbolos funcionales.
+- `test-protocol.sh --run`: PASS (H.264, TLS-PSK, tres muestras y ACKs, cierre remoto,
+  clave incorrecta). `test-diagnostics.sh --run`: PASS.
+- `test-link.sh --run --require-usb`: PASS con el cable conectado. Detectó «Cable USB ·
+  USB 2.0 · 480 Mbps» y Wi‑Fi. Bonjour quedó solo en la interfaz del cable, con su
+  tipo en TXT. TLS-PSK por el endpoint Bonjour, IPv4 e IPv6 link‑local → saludo v3 →
+  decodificación de producción → ACKs → reporte. El registro no contiene IP ni interfaz.
+  Ambos extremos estaban en la MacBook: el tráfico no cruzó el cable.
+- `test-video-performance.sh --run`: PASS.
+
+| Caso | Resultado |
+| --- | --- |
+| Ventana 3, ACK artificial 40 ms, 1080p | 60 FPS entregados (ventana 1: ~20) |
+| Receptor de producción, 2560 × 1440, 60 FPS, 40 Mbps | 60.0 FPS mostrados, decodificación por hardware 1.5–1.7 ms, ACK 1.5–1.8 ms |
+| Texto quieto tras el primer cuadro | 37.43 dB → **40.40 dB** refinado (8 cuadros extra) |
+| Texto quieto tras cambiar de página | 40.01 dB → 40.40 dB (5 cuadros extra) |
+
+El receptor de producción en la M5 decodifica por hardware de Apple Silicon: no
+predice el decoder de la iMac Intel.
+
+- Arranque: Sender v0.4.0 abrió y registró la detección del cable. Receiver v0.4.0
+  x86_64 bajo Rosetta abrió e inició la búsqueda Bonjour. Sin sesión de video.
+
+Pendiente: escritorio real por el cable hasta la iMac, FPS mostrados y decodificación
+hardware/software en la iMac, latencia percibida al escribir y mover ventanas, CPU,
+sesión de 30 minutos, desconectar el cable durante la sesión, reposo y otro puerto.
+No se afirma todavía que la pantalla sea fluida en la iMac.

@@ -31,12 +31,14 @@ enum Pairing {
         let parameters = NWParameters(tls: tls, tcp: tcp)
         parameters.includePeerToPeer = false
         parameters.allowLocalEndpointReuse = true
+        // Clase de tráfico de video interactivo: en Wi‑Fi usa la cola de video (WMM).
+        parameters.serviceClass = .interactiveVideo
         return parameters
     }
 }
 
 // Callbacks serializados en main. El emisor acota a tres fotogramas pendientes
-// con un receptor v2; un receptor v1 conserva la ventana de uno.
+// con un receptor v2/v3; un receptor v1 conserva la ventana de uno.
 final class PacketChannel {
     static let maximumPacket = 8 * 1024 * 1024
     let connection: NWConnection
@@ -148,12 +150,62 @@ final class PacketChannel {
 
 enum Wire {
     static let helloV1 = Data([1, 73, 83, 68, 1])
-    static let hello = Data([1, 73, 83, 68, 2]) // ISD v2: receptor con cola acotada
+    static let helloV2 = Data([1, 73, 83, 68, 2]) // receptor con cola acotada
+    /// ISD v3: ACK al terminar de decodificar y reportes del receptor.
+    static let hello = Data([1, 73, 83, 68, 3])
     static let accepted = Data([2])
-    static func frameWindow(forHello data: Data) -> Int? {
-        if data == hello { return 3 }
-        if data == helloV1 { return 1 }
-        return nil
+    static let heartbeat = Data([5])
+    static let heartbeatReply = Data([6])
+
+    struct Peer: Equatable { let window: Int; let version: Int }
+    static func peer(forHello data: Data) -> Peer? {
+        switch data {
+        case hello: return Peer(window: 3, version: 3)
+        case helloV2: return Peer(window: 3, version: 2)
+        case helloV1: return Peer(window: 1, version: 1)
+        default: return nil
+        }
     }
+    static func frameWindow(forHello data: Data) -> Int? { peer(forHello: data)?.window }
     static func ack(_ sequence: UInt32) -> Data { var data = Data([4]); data.put32(sequence); return data }
+}
+
+/// Estado del receptor enviado al emisor una vez por segundo (protocolo v3).
+/// Permite leer en la MacBook si la iMac decodifica por hardware y a qué ritmo.
+struct ReceiverReport: Equatable {
+    static let type: UInt8 = 7
+    var shownFPS: Double
+    var decodeMS: Double?
+    var hardware: Bool?
+    var compressedFallback: Bool
+
+    func serialized() -> Data {
+        var flags: UInt8 = 0
+        if let hardware { flags |= 1; if hardware { flags |= 2 } }
+        if compressedFallback { flags |= 4 }
+        if decodeMS != nil { flags |= 8 }
+        let fps = Self.tenths(shownFPS), decode = Self.tenths(decodeMS ?? 0)
+        return Data([Self.type, flags, UInt8(fps >> 8), UInt8(fps & 0xFF), UInt8(decode >> 8), UInt8(decode & 0xFF)])
+    }
+    /// Décimas acotadas a 16 bits; nunca convierte un valor no finito.
+    private static func tenths(_ value: Double) -> UInt16 {
+        guard value.isFinite else { return 0 }
+        return UInt16((min(max(value, 0), 6553.5) * 10).rounded())
+    }
+    init(shownFPS: Double, decodeMS: Double?, hardware: Bool?, compressedFallback: Bool) {
+        self.shownFPS = shownFPS; self.decodeMS = decodeMS
+        self.hardware = hardware; self.compressedFallback = compressedFallback
+    }
+    init?(data: Data) {
+        let bytes = [UInt8](data)
+        guard bytes.count == 6, bytes[0] == Self.type, bytes[1] & ~UInt8(15) == 0 else { return nil }
+        let flags = bytes[1]
+        let fps = Double(UInt16(bytes[2]) << 8 | UInt16(bytes[3])) / 10
+        let decode = Double(UInt16(bytes[4]) << 8 | UInt16(bytes[5])) / 10
+        guard fps <= 1000, decode <= 5000 else { return nil }
+        shownFPS = fps
+        decodeMS = flags & 8 != 0 ? decode : nil
+        hardware = flags & 1 != 0 ? flags & 2 != 0 : nil
+        compressedFallback = flags & 4 != 0
+    }
 }

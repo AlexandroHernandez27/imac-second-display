@@ -5,7 +5,8 @@ mkdir -p .build/module-cache
 sdk_path=$(xcrun --show-sdk-path)
 xcrun swiftc -swift-version 5 -O -sdk "$sdk_path" -target arm64-apple-macosx13.0 \
   -module-cache-path .build/module-cache Sources/Shared/*.swift Sources/Sender/CapturePipeline.swift \
-  Sources/Receiver/FrameReceiver.swift Tests/VideoBenchmark/main.swift \
+  Sources/Receiver/FrameReceiver.swift Sources/Receiver/VideoDecoder.swift Tests/VideoBenchmark/main.swift \
   -framework AppKit -framework Network -framework Security -framework ScreenCaptureKit \
-  -framework VideoToolbox -framework CoreMedia -o .build/video-benchmark
+  -framework VideoToolbox -framework CoreMedia -framework IOKit -framework SystemConfiguration \
+  -o .build/video-benchmark
 if [[ "${1:-}" == "--run" ]]; then shift; .build/video-benchmark "$@"; fi

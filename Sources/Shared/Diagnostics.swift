@@ -51,7 +51,7 @@ final class Diagnostics: @unchecked Sendable {
             appInformation = ["version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development",
                 "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "development",
                 "os": "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)", "arch": arch,
-                "memory_gib": Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024)), "protocol": 2]
+                "memory_gib": Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024)), "protocol": 3]
             write("app_launch", fields: appInformation)
         }
     }

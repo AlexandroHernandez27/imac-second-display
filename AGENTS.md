@@ -107,3 +107,12 @@ El reporte de protocolo incompatible tras descargar v0.3.0 se investigó: el pro
 activo de Sender todavía era v0.1.0/build 1. No afirmar una regresión de v0.3.0 ni que
 la conexión real en iMac esté resuelta hasta probar las copias correctas. No añadir
 texto libre, IP, claves, payloads o NSError.userInfo a los registros.
+
+v0.4.0 agrega conexión por cable USB‑A (iMac) → USB‑C (MacBook) sin adaptador: la M5
+expone una red CDC‑NCM en modo dispositivo y la iMac la reconoce con `AppleUSBNCM`.
+Verificado el enlace físico el 2026-11-06: USB 2.0 480 Mbps, ≈340 Mbps, 0.6–0.9 ms,
+link-local en ambos extremos. Es comportamiento no documentado por Apple; documentarlo
+como tal. También: Bonjour limitado al enlace, saludo v3 (ACK al mostrar, reportes
+de la iMac), decodificación VideoToolbox, H.264 High y refinamiento de pantalla
+quieta. Leer `docs/CABLE_USB.md`. Falta medir el escritorio real por el cable en la
+iMac: no afirmar fluidez ni decodificación por hardware allí hasta medirlo.

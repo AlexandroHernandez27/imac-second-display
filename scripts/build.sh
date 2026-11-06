@@ -19,13 +19,15 @@ xcrun swiftc -swift-version 5 -O -sdk "$sdk_path" -target arm64-apple-macosx13.0
   -module-cache-path .build/module-cache Sources/Shared/*.swift Sources/Updates/*.swift Sources/Sender/*.swift \
   -F "$sparkle_root" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
   -framework AppKit -framework Network -framework Security -framework ScreenCaptureKit \
-  -framework VideoToolbox -framework CoreMedia -o "$sender/Contents/MacOS/iMacSender"
+  -framework VideoToolbox -framework CoreMedia -framework IOKit -framework SystemConfiguration \
+  -o "$sender/Contents/MacOS/iMacSender"
 for arch in arm64 x86_64; do
   xcrun swiftc -swift-version 5 -O -sdk "$sdk_path" -target "$arch-apple-macosx13.0" \
     -module-cache-path .build/module-cache Sources/Shared/*.swift Sources/Updates/*.swift Sources/Receiver/*.swift \
     -F "$sparkle_root" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
     -framework AppKit -framework Network -framework Security -framework AVFoundation \
-    -framework CoreMedia -o ".build/iMacReceiver-$arch"
+    -framework CoreMedia -framework VideoToolbox -framework IOKit -framework SystemConfiguration \
+    -o ".build/iMacReceiver-$arch"
 done
 lipo -create .build/iMacReceiver-arm64 .build/iMacReceiver-x86_64 -output "$receiver/Contents/MacOS/iMacReceiver"
 

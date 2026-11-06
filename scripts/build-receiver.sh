@@ -13,7 +13,8 @@ xcrun swiftc -swift-version 5 -O -sdk "$sdk_path" -target "$build_arch-apple-mac
   -module-cache-path .build/module-cache Sources/Shared/*.swift Sources/Updates/*.swift Sources/Receiver/*.swift \
   -F "$sparkle_root" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
   -framework AppKit -framework Network -framework Security -framework AVFoundation \
-  -framework CoreMedia -o 'dist/iMac Receiver.app/Contents/MacOS/iMacReceiver'
+  -framework CoreMedia -framework VideoToolbox -framework IOKit -framework SystemConfiguration \
+  -o 'dist/iMac Receiver.app/Contents/MacOS/iMacReceiver'
 python3 scripts/write-bundles.py Receiver
 python3 scripts/embed-sparkle.py Receiver
 codesign --force --sign - 'dist/iMac Receiver.app'
