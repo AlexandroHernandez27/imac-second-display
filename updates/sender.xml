@@ -6,26 +6,23 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <link>https://github.com/AlexandroHernandez27/imac-second-display</link>
     <language>es</language>
     <item>
-      <title>iMac Sender 0.4.0</title>
-      <pubDate>Fri, 06 Nov 2026 18:25:45 +0000</pubDate>
-      <sparkle:version>5</sparkle:version>
-      <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
+      <title>iMac Sender 0.4.1</title>
+      <pubDate>Fri, 06 Nov 2026 19:00:58 +0000</pubDate>
+      <sparkle:version>6</sparkle:version>
+      <sparkle:shortVersionString>0.4.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-      <description>&lt;h2&gt;Cable USB‑A → USB‑C y pantalla más fluida&lt;/h2&gt;
+      <description>&lt;h2&gt;Cable USB sin clave&lt;/h2&gt;
 &lt;ul&gt;
-  &lt;li&gt;Conecta un cable USB‑A (iMac) → USB‑C (MacBook): red privada sin adaptadores, detectada sola. Medido: USB 2.0, ≈340 Mbps y menos de 1 ms de latencia de red.&lt;/li&gt;
-  &lt;li&gt;Con cable se aplican 2560 × 1440, 60 FPS y 40 Mbps. La iMac encuentra la MacBook sin escribir la IP.&lt;/li&gt;
-  &lt;li&gt;La iMac decodifica con VideoToolbox y confirma cada imagen al mostrarla; el emisor muestra sus FPS y si usa hardware.&lt;/li&gt;
-  &lt;li&gt;H.264 High y refinamiento de la pantalla quieta para texto más nítido.&lt;/li&gt;
-  &lt;li&gt;Aviso al desconectar el cable y pantalla completa automática.&lt;/li&gt;
+  &lt;li&gt;Por cable USB‑A → USB‑C ya no hace falta clave: pulsa «Preparar conexión» en la MacBook y la iMac se conecta sola. Solo aceptas en la MacBook.&lt;/li&gt;
+  &lt;li&gt;El modo cable escucha solo en el cable, rechaza conexiones de la propia MacBook y no transmite sin tu aceptación. Por Wi‑Fi sigue la clave temporal.&lt;/li&gt;
+  &lt;li&gt;Wi‑Fi: huella de la clave en ambas Macs y mensaje claro si no coincide; la MacBook sigue esperando.&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;&lt;strong&gt;Actualiza ambas apps&lt;/strong&gt;: el receptor v0.4.0 necesita el emisor v0.4.0. macOS puede pedir otra vez los permisos de red local y grabación de pantalla.&lt;/p&gt;
-&lt;p&gt;Enlace físico verificado con la iMac; la transmisión de escritorio por el cable aún debe medirse allí. Modo de red USB no documentado por Apple.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;Actualiza ambas apps.&lt;/strong&gt; macOS vuelve a pedir el permiso de grabación de pantalla para iMac Sender: actívalo y reabre la app.&lt;/p&gt;
 </description>
-      <enclosure url="https://github.com/AlexandroHernandez27/imac-second-display/releases/download/v0.4.0/iMac-Sender-AppleSilicon.zip" length="1217478" type="application/octet-stream" sparkle:edSignature="zG9Y/bYZgUBMpVHgbijwFuF/Z4eVhgUg+EJt8Nq4r1LxhZY3wAAt8z3WfbuPDP2dBIKv/6ARLDDLWqcN4px+Dw=="></enclosure>
+      <enclosure url="https://github.com/AlexandroHernandez27/imac-second-display/releases/download/v0.4.1/iMac-Sender-AppleSilicon.zip" length="1228265" type="application/octet-stream" sparkle:edSignature="LEYzeEDlyKiH2dtpULA5ifCrkr/GooN8EpTDZSrbn37DodH1ZUCOT7Qb+2x4HA1VWHIIBrvwy99d+CDDrmSKCg=="></enclosure>
     </item>
   </channel>
 </rss><!-- sparkle-signatures:
-edSignature: TBvcZGBMlEfNDL5NzjZR+9d7D9uXIaprJnrzf8jvBfzFgUoT0crI7nNVuqU9EHQehBTtyN5Jl+4CJYO0r/uFCA==
-length: 2319
+edSignature: LqXCEzf+pHTg5hinF65GhruHxMG5BZYQ88diVkBXC29aW1noJyPOMoS9VEluzLS882jdiTwL5YbvHHR98SRiCA==
+length: 1939
 -->
